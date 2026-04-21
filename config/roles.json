@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0",
+  "roles": {
+    "data-modeler": {
+      "subagent_type": "mavsdd-implementer",
+      "model": "sonnet",
+      "allowedWritePaths": ["db/", "src/types/"]
+    },
+    "implementer": {
+      "subagent_type": "mavsdd-implementer",
+      "model": "sonnet",
+      "allowedWritePaths": ["src/", "tests/"]
+    },
+    "http-endpoint": {
+      "subagent_type": "mavsdd-implementer",
+      "model": "sonnet",
+      "allowedWritePaths": ["src/http/", "src/api/", "tests/http/"]
+    },
+    "test-engineer": {
+      "subagent_type": "mavsdd-implementer",
+      "model": "sonnet",
+      "allowedWritePaths": ["tests/"]
+    },
+    "tester": {
+      "subagent_type": "mavsdd-implementer",
+      "model": "sonnet",
+      "allowedWritePaths": ["tests/"]
+    },
+    "fixer": {
+      "subagent_type": "mavsdd-fixer",
+      "model": "sonnet",
+      "allowedWritePaths": []
+    }
+  }
+}
