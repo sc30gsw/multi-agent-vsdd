@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_DIR}/scripts/hooks/run-with-flags-strict.js\" mavsdd-path-phase-gate"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_DIR}/scripts/hooks/run-with-flags-strict.js\" mavsdd-promote-and-sentinel"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_DIR}/scripts/hooks/run-with-flags-strict.js\" mavsdd-load-active"
+          }
+        ]
+      }
+    ]
+  }
+}
