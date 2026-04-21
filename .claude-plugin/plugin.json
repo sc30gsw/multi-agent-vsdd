@@ -1,0 +1,23 @@
+{
+  "name": "multi-agent-vsdd",
+  "version": "0.1.0",
+  "description": "Multi-Agent VSDD plugin that persists plans, reviews, workspaces, and verification state under .mavsdd/.",
+  "author": {
+    "name": "sc30gsw",
+    "url": "https://github.com/sc30gsw"
+  },
+  "homepage": "https://github.com/sc30gsw/multi-agent-vsdd",
+  "repository": "https://github.com/sc30gsw/multi-agent-vsdd",
+  "license": "MIT",
+  "keywords": [
+    "vsdd",
+    "claude-code",
+    "codex",
+    "agent-teams",
+    "plugin",
+    "verification"
+  ],
+  "skills": [
+    "./skills/"
+  ]
+}

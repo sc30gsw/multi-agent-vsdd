@@ -1,0 +1,11 @@
+{
+  "name": "multi-agent-vsdd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Disk-first Multi-Agent VSDD harness plugin with trusted CLI orchestration.",
+  "scripts": {
+    "test": "node --test",
+    "verify:sample": "node scripts/cli/mavsdd.mjs status --feature sample-feature"
+  }
+}
