@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mavsdd-state",
+  "title": "mavsdd Feature State",
+  "description": "Per-feature state snapshot persisted to feature-state.json.",
+  "type": "object",
+  "required": ["feature", "phase"],
+  "properties": {
+    "feature": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "goal": { "type": "string" },
+    "unitName": { "type": "string" },
+    "targetRepo": { "type": "string" },
+    "targetRepoRelative": { "type": "string" },
+    "verifyCommand": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "initialized",
+        "planned",
+        "plan_review_pending",
+        "plan_reviewed",
+        "plan_review_inconclusive",
+        "plan_approved",
+        "red",
+        "implementing",
+        "implemented",
+        "ready_to_stage",
+        "staged",
+        "impl_staged",
+        "impl_applying",
+        "applied",
+        "impl_applied",
+        "verifying",
+        "verified",
+        "impl_review_pending",
+        "impl_reviewed",
+        "impl_review_inconclusive",
+        "fix_required",
+        "blocked",
+        "done"
+      ]
+    },
+    "approvals": {
+      "type": "object",
+      "properties": {
+        "plan": { "type": "boolean" },
+        "implementation": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "reviewIterations": {
+      "type": "object",
+      "properties": {
+        "plan": { "type": "number", "minimum": 0 },
+        "impl": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "lastAggregate": {
+      "type": "object",
+      "properties": {
+        "plan": { "type": ["string", "null"] },
+        "impl": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "workspace": {
+      "type": "object",
+      "properties": {
+        "baseRepoHash": { "type": ["string", "null"] },
+        "baselineId": { "type": ["string", "null"] },
+        "materializedAt": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "external": { "type": "object" }
+  },
+  "additionalProperties": true
+}

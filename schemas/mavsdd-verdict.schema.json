@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mavsdd-verdict",
+  "title": "mavsdd Reviewer Verdict",
+  "description": "A single reviewer's verdict file written during plan or impl review.",
+  "type": "object",
+  "required": ["verdict", "findings"],
+  "properties": {
+    "reviewerId": { "type": "string" },
+    "scope": { "type": "string", "enum": ["plan", "impl"] },
+    "iteration": { "type": "number", "minimum": 1 },
+    "summary": { "type": "string" },
+    "verdict": {
+      "type": "string",
+      "enum": ["GREEN", "YELLOW", "RED", "PENDING", "INCONCLUSIVE"]
+    },
+    "coverageComplete": { "type": "boolean" },
+    "touched_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "dimensions": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "mavsdd-finding" }
+    },
+    "startedAt": { "type": "string" },
+    "finishedAt": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mavsdd-operations",
+  "title": "mavsdd Operations Manifest",
+  "description": "operations.json per unit, enumerating every file change the unit intends to apply.",
+  "type": "object",
+  "required": ["feature", "unitId", "operations"],
+  "properties": {
+    "feature": { "type": "string", "minLength": 1 },
+    "unitId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string" },
+    "operations": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/operation" }
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "operation": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": ["add", "overwrite", "delete", "rename", "chmod"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["add", "modify", "delete", "rename", "chmod"]
+        },
+        "path": { "type": "string" },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "baseHash": { "type": ["string", "null"] },
+        "contentHash": { "type": ["string", "null"] },
+        "newHash": { "type": ["string", "null"] },
+        "newContent": { "type": ["string", "null"] },
+        "mode": { "type": ["number", "null"] },
+        "baseMode": { "type": ["number", "null"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}

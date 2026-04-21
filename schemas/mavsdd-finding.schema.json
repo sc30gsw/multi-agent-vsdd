@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mavsdd-finding",
+  "title": "mavsdd Finding",
+  "description": "Single reviewer finding attached to a verdict or aggregate.",
+  "type": "object",
+  "required": ["id", "severity", "title"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "reviewer": { "type": "string" },
+    "severity": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "detail": { "type": "string" },
+    "artifact": { "type": "string" },
+    "filePath": { "type": "string" },
+    "lineRange": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "category": { "type": "string" },
+    "descriptionDigest": { "type": "string" },
+    "recommendation": { "type": "string" },
+    "mergedFrom": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}
