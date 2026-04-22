@@ -182,12 +182,26 @@ verify が通ったら:
 
 > v1 の保証範囲は **事故防止（accident prevention）** です。悪意ある / 侵害された agent をハードに隔離する sandbox（container / seccomp / ptrace 等）は v1 のスコープ外で、必要なら v2+ の sandbox 化を待ってください。
 
+## 実行上の注意
+
+### `/mavsdd-implement` と `/mavsdd-fix` の子 Claude セッション
+
+`/mavsdd-implement` と `/mavsdd-fix` は内部で **`claude -p --agents ...` で子 Claude を spawn** します。Agent Teams の既知の振る舞いとして、**親の Claude Code セッションの中から spawn された子 Claude は、認可や session 状態の継承の関係でストールする**ことがあります（特に親セッションと子セッションが同じ auth を取り合う構造になるため）。
+
+そのためこの 2 コマンドは、次のいずれかの環境で実行することを推奨します。
+
+1. **通常のターミナル**（親 Claude Code 無し）から `node scripts/cli/mavsdd.mjs implement --feature <f>` を実行
+2. Claude Code の **別プロジェクト** セッションから実行（親が別プロジェクト root を見ている状態）
+
+15 分待って応答が無い場合は `MAVSDD_IMPLEMENT_TIMEOUT_MS` 経由の timeout で fail-closed に落ち、`run-metadata/events.jsonl` に `policyReason: "process timed out after ..."` が記録されます。ハングはしません。
+
 ## Troubleshooting
 
 | 症状 | 対処 |
 |---|---|
 | `/mavsdd-implement` / `/mavsdd-fix` が即停止 | `echo $CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` が `1` か確認、shell rc を再読込してから session を開き直す |
-| `/mavsdd-plan-review` / `/mavsdd-impl-review` が失敗 | `codex login status` を確認 |
+| `/mavsdd-implement` / `/mavsdd-fix` が 5 分以上応答しない | 親の Claude Code セッションから spawn している可能性。前節 "実行上の注意" を参照。`MAVSDD_IMPLEMENT_TIMEOUT_MS=300000` 等で timeout を短くして挙動確認できます |
+| `/mavsdd-plan-review` / `/mavsdd-impl-review` が失敗 | `codex login status` を確認。Pro/Plus quota 切れなら復帰待ち（Codex 側の rate limit は独立） |
 | `/mavsdd-*` が "command not found" | session を再起動。それでも駄目なら `/plugin marketplace update mavsdd` で marketplace 側を最新化してから再度 session 再起動 |
 | hook 設定を変えたのに反映されない | Claude Code session を開き直す（hooks は `SessionStart` で読み込み） |
 | `/mavsdd-apply` が `baseHash mismatch` で止まる | apply 待ちの間に target repo へ手で変更が入っている。`/mavsdd-status` で確認のうえ rebase / restage |
