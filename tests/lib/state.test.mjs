@@ -5,7 +5,10 @@ import {
   PHASES,
   PHASE_TRANSITIONS,
   isTransitionAllowed,
-  assertTransition
+  assertTransition,
+  transitionPhase,
+  ensureCommandEntryPhase,
+  TERMINAL_PHASES
 } from "../../scripts/lib/mavsdd-core.mjs";
 
 test("PHASES contains every plan-required explicit phase", () => {
@@ -58,4 +61,35 @@ test("assertTransition throws with a clear error for invalid hops", () => {
     () => assertTransition("initialized", "done"),
     /illegal phase transition/
   );
+});
+
+test("ensureCommandEntryPhase blocks commands from terminal phases", () => {
+  assert.throws(
+    () => ensureCommandEntryPhase({ phase: "done" }, "verify"),
+    /terminal phase "done"/
+  );
+  assert.throws(
+    () => ensureCommandEntryPhase({ phase: "blocked" }, "apply"),
+    /terminal phase "blocked"/
+  );
+});
+
+test("ensureCommandEntryPhase enforces allowed-phase lists when provided", () => {
+  assert.throws(
+    () => ensureCommandEntryPhase({ phase: "planned" }, "apply", ["staged"]),
+    /requires one of \[staged\]/
+  );
+  // no throw when allowed
+  ensureCommandEntryPhase({ phase: "staged" }, "apply", ["staged", "applied"]);
+});
+
+test("transitionPhase mutates the state to a valid phase only", () => {
+  const state = { phase: "initialized" };
+  transitionPhase(state, "planned");
+  assert.equal(state.phase, "planned");
+  assert.throws(() => transitionPhase(state, "done"), /illegal phase transition/);
+});
+
+test("TERMINAL_PHASES contains only done and blocked", () => {
+  assert.deepEqual([...TERMINAL_PHASES].sort(), ["blocked", "done"]);
 });

@@ -15,7 +15,7 @@ Claude Code の Agent Teams と Codex CLI を組み合わせ、**計画 → レ�
 
 | 要件 | 確認コマンド |
 |---|---|
-| Node.js **24+** | `node -v` |
+| Node.js **24 以上** | `node -v`（`v24.0.0` 以上であれば OK） |
 | Claude Code CLI（ログイン済み） | `claude auth status` → `loggedIn: true` |
 | Codex CLI（ログイン済み） | `codex login status` |
 | Agent Teams 実験フラグ | `echo $CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` → `1` |
@@ -30,16 +30,17 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 Claude Code 上で:
 
-```text
+```bash
 /plugin marketplace add sc30gsw/multi-agent-vsdd
 /plugin install multi-agent-vsdd@mavsdd
+/reload-plugin
 ```
 
-`/plugin install` 直後に **Claude Code session を一度閉じて開き直して**ください（hooks は `SessionStart` で配線されます）。
+`/reload-plugin` 後に **Claude Code session を一度閉じて開き直して**ください（hooks は `SessionStart` で配線されるため、reload だけでは hook が有効になりません）。
 
 確認:
 
-```text
+```bash
 /mavsdd-status
 ```
 
@@ -88,7 +89,7 @@ target repo を `~/code/my-app`、追加したい機能を「`sumRange(start, en
 
 ### verify が落ちた場合
 
-```text
+```bash
 /mavsdd-impl-review               # Codex が原因を採点
 /mavsdd-aggregate    scope=impl   # finding を cluster に集約
 /mavsdd-approve-orphan            # plan に紐付かない finding があれば承認
@@ -98,7 +99,7 @@ target repo を `~/code/my-app`、追加したい機能を「`sumRange(start, en
 
 verify が通ったら:
 
-```text
+```bash
 /mavsdd-approve-impl   by=<your-name>
 ```
 

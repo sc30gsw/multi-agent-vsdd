@@ -87,6 +87,27 @@ export function assertTransition(fromPhase, toPhase) {
   }
 }
 
+export function transitionPhase(state, toPhase) {
+  assertTransition(state.phase, toPhase);
+  state.phase = toPhase;
+  return state;
+}
+
+export const TERMINAL_PHASES = new Set(["done", "blocked"]);
+
+export function ensureCommandEntryPhase(state, command, allowedPhases) {
+  if (TERMINAL_PHASES.has(state.phase)) {
+    throw new Error(
+      `${command} is not permitted from terminal phase "${state.phase}"; use resume or start a new feature`
+    );
+  }
+  if (Array.isArray(allowedPhases) && allowedPhases.length > 0 && !allowedPhases.includes(state.phase)) {
+    throw new Error(
+      `${command} requires one of [${allowedPhases.join(", ")}], but feature is in phase "${state.phase}"`
+    );
+  }
+}
+
 const PLAN_ARTIFACTS = [
   "plan.md",
   "specs/behavioral-spec.md",
@@ -1503,6 +1524,7 @@ function extractClaudeJson(stdout) {
 
 export async function stageOperations(repoRoot, feature) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "stage");
   const root = featureRoot(repoRoot, feature);
   const baseDir = path.join(root, "workspace/base");
   const repoDir = path.join(root, "workspace/repo");
@@ -1583,6 +1605,7 @@ export async function stageOperations(repoRoot, feature) {
 
 export async function applyOperations(repoRoot, feature, options = {}) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "apply");
   const root = featureRoot(repoRoot, feature);
   const applyTxnId = buildId("apply", `${feature}:${nowIso()}`);
   const lockAlready = await isLocked(repoRoot);
@@ -1700,6 +1723,7 @@ export async function applyOperationsInSubprocess(repoRoot, feature) {
 
 export async function runVerification(repoRoot, feature) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "verify");
   const root = featureRoot(repoRoot, feature);
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
   const profilePath = path.join(root, "verification/profile.json");
