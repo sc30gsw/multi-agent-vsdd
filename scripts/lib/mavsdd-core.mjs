@@ -1261,6 +1261,7 @@ export async function materializeWorkspaces(repoRoot, feature) {
     repoHead,
     materializedAt: nowIso()
   };
+  await saveState(repoRoot, feature, state);
   for (const unit of teamComposition.units) {
     await ensureDir(path.join(root, "workspace/runtime", unit.id));
   }
