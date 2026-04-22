@@ -1248,12 +1248,19 @@ export async function materializeWorkspaces(repoRoot, feature) {
   const baselineManifest = await buildFileManifest(baseDir);
   const baselineFilesJson = JSON.stringify(baselineManifest, Object.keys(baselineManifest).sort());
   const baselineId = `base-${sha256Text(`${feature}:${baselineFilesJson}`).slice(0, 12)}`;
+  const repoHead = detectRepoHead(state.targetRepo);
   await writeJson(path.join(root, "workspace/baseline-manifest.json"), {
     baselineId,
+    repoHead,
     generatedAt: nowIso(),
     files: baselineManifest
   });
-  state.workspace = { ...(state.workspace || {}), baselineId, materializedAt: nowIso() };
+  state.workspace = {
+    ...(state.workspace || {}),
+    baselineId,
+    repoHead,
+    materializedAt: nowIso()
+  };
   for (const unit of teamComposition.units) {
     await ensureDir(path.join(root, "workspace/runtime", unit.id));
   }
@@ -3000,12 +3007,30 @@ async function buildFileManifest(baseDir) {
   const manifest = {};
   await walkFiles(baseDir, async (absolutePath, relativePath) => {
     const content = await fs.readFile(absolutePath, "utf8");
+    const stats = await fs.lstat(absolutePath);
+    const sha = sha256Text(content);
     manifest[relativePath] = {
-      sha256: sha256Text(content),
-      bytes: Buffer.byteLength(content)
+      sha256: sha,
+      hash: `sha256:${sha}`,
+      bytes: Buffer.byteLength(content),
+      mode: stats.mode & 0o777
     };
   });
   return manifest;
+}
+
+function detectRepoHead(targetRepo) {
+  try {
+    const result = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: targetRepo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    if (result.status === 0 && result.stdout) {
+      return result.stdout.trim() || null;
+    }
+  } catch {}
+  return null;
 }
 
 async function walkFiles(root, callback, prefix = "") {
