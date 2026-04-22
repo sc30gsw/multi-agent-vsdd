@@ -112,6 +112,52 @@ test("computeQuorum uses ceil(n * 2 / 3) with a floor of 1", () => {
   assert.equal(computeQuorum(5), 4);
 });
 
+test("aggregateVerdicts returns conditional GREEN when 2/3 are GREEN (plan §0.2)", () => {
+  const result = aggregateVerdicts(
+    [
+      { reviewer: "r1", verdict: "GREEN", coverageComplete: true, findings: [] },
+      { reviewer: "r2", verdict: "GREEN", coverageComplete: true, findings: [] },
+      { reviewer: "r3", verdict: "RED", coverageComplete: true, findings: [] }
+    ],
+    { manifestReviewerCount: 3 }
+  );
+  assert.equal(result.verdict, "GREEN");
+  assert.equal(result.conditional, true);
+  assert.equal(result.counts.GREEN, 2);
+  assert.equal(result.counts.RED, 1);
+});
+
+test("aggregateVerdicts flags unanimous GREEN as non-conditional", () => {
+  const result = aggregateVerdicts(
+    [
+      { reviewer: "r1", verdict: "GREEN", coverageComplete: true, findings: [] },
+      { reviewer: "r2", verdict: "GREEN", coverageComplete: true, findings: [] },
+      { reviewer: "r3", verdict: "GREEN", coverageComplete: true, findings: [] }
+    ],
+    { manifestReviewerCount: 3 }
+  );
+  assert.equal(result.verdict, "GREEN");
+  assert.equal(result.conditional, false);
+});
+
+test("aggregateVerdicts keeps RED when a critical finding is present even at 2/3 GREEN", () => {
+  const result = aggregateVerdicts(
+    [
+      { reviewer: "r1", verdict: "GREEN", coverageComplete: true, findings: [] },
+      { reviewer: "r2", verdict: "GREEN", coverageComplete: true, findings: [] },
+      {
+        reviewer: "r3",
+        verdict: "RED",
+        coverageComplete: true,
+        findings: [{ id: "f-crit", severity: "critical", title: "security leak" }]
+      }
+    ],
+    { manifestReviewerCount: 3 }
+  );
+  assert.equal(result.verdict, "RED");
+  assert.equal(result.conditional, false);
+});
+
 test("aggregateVerdicts honors judgement.label when present (plan §17.1.1)", () => {
   const result = aggregateVerdicts(
     [

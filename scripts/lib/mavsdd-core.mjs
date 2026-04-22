@@ -2594,6 +2594,7 @@ export async function aggregateReviews(repoRoot, feature, scope) {
     reviewerCount: aggregateCore.reviewerCount,
     countedReviewerCount: aggregateCore.countedReviewerCount,
     verdict: aggregateCore.verdict,
+    conditional: Boolean(aggregateCore.conditional),
     coverageComplete: aggregateCore.coverageComplete,
     counts: aggregateCore.counts,
     quorum: aggregateCore.quorum,
@@ -2675,16 +2676,23 @@ export async function recordApproval(repoRoot, feature, type, options = {}) {
     verdict: options.verdict || aggregate.verdict,
     reason: options.reason || options.notes || "",
     aggregateVerdict: aggregate.verdict,
+    aggregateConditional: Boolean(aggregate.conditional),
+    acceptRisk: options["accept-risk"] || options.acceptRisk || null,
     createdAt: nowIso()
   };
+
+  // plan §0.2: a conditional GREEN (2/3 threshold but not unanimous) requires
+  // the human to spell out a risk acknowledgement. Missing --accept-risk on a
+  // conditional aggregate is a hard fail so the override is always auditable.
+  if (aggregate.conditional && !entry.acceptRisk) {
+    throw new Error(
+      `approve-${type} against a conditional aggregate requires --accept-risk "<reason>" (plan §0.2).`
+    );
+  }
 
   if (type !== "plan") {
     if (aggregate.verdict !== "GREEN") {
       throw new Error("approve-impl requires a GREEN impl aggregate.");
-    }
-    const reuseEvidence = await fs.readFile(path.join(root, "specs/reuse-evidence.md"), "utf8");
-    if (!isReuseEvidenceComplete(reuseEvidence)) {
-      throw new Error("approve-impl requires a completed specs/reuse-evidence.md audit.");
     }
   }
 

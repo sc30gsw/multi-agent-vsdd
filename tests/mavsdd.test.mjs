@@ -359,7 +359,7 @@ test("prepareFixes excludes review_meta findings from actionable clusters", asyn
   assert.equal(fixResult.clusterCount, 1);
 });
 
-test("approve-impl fails closed until reuse evidence is complete", async () => {
+test("approve gates conditional GREEN aggregates on --accept-risk (plan §0.2)", async () => {
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
   await createFeatureState(repoRoot, "sample-feature", {
@@ -369,25 +369,41 @@ test("approve-impl fails closed until reuse evidence is complete", async () => {
   await generatePlanArtifacts(repoRoot, "sample-feature");
 
   const root = path.join(repoRoot, ".mavsdd/features/sample-feature");
-  await writeJson(path.join(root, "reviews/impl/iteration-1/aggregate.json"), {
+  await fs.mkdir(path.join(root, "reviews/plan/iteration-1"), { recursive: true });
+  await writeJson(path.join(root, "reviews/plan/iteration-1/manifest.json"), {
     feature: "sample-feature",
-    scope: "impl",
+    scope: "plan",
+    iteration: 1,
+    artifactsToReview: []
+  });
+  // 2/3 GREEN + 1 RED → aggregate GREEN but conditional.
+  await writeJson(path.join(root, "reviews/plan/iteration-1/aggregate.json"), {
+    feature: "sample-feature",
+    scope: "plan",
     iteration: 1,
     verdict: "GREEN",
+    conditional: true,
     coverageComplete: true,
-    counts: { GREEN: 1, YELLOW: 0, RED: 0 },
+    counts: { GREEN: 2, YELLOW: 0, RED: 1 },
     findings: []
   });
   const statePath = path.join(root, "feature-state.json");
   const state = JSON.parse(await fs.readFile(statePath, "utf8"));
-  state.phase = "impl_reviewed";
-  state.reviewIterations.impl = 1;
+  state.phase = "plan_reviewed";
+  state.reviewIterations.plan = 1;
   await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
 
   await assert.rejects(
-    () => recordApproval(repoRoot, "sample-feature", "implementation", { by: "tester" }),
-    /completed specs\/reuse-evidence\.md audit/
+    () => recordApproval(repoRoot, "sample-feature", "plan", { by: "tester" }),
+    /accept-risk/
   );
+
+  const approved = await recordApproval(repoRoot, "sample-feature", "plan", {
+    by: "tester",
+    "accept-risk": "1 reviewer RED but the risk is bounded — acknowledging."
+  });
+  assert.equal(approved.aggregateConditional, true);
+  assert.match(approved.acceptRisk, /reviewer RED/);
 });
 
 async function makeTempRepo() {

@@ -113,11 +113,30 @@ export function aggregateVerdicts(verdicts, options = {}) {
       : verdicts.length;
   const quorum = computeQuorum(reviewerCount);
 
+  // plan §0.2: v1 aggregates GREEN when >= 2/3 of eligible reviewers are GREEN
+  // and no critical-severity RED finding is present. When the GREEN set is not
+  // unanimous, the aggregate is still GREEN but flagged `conditional: true` so
+  // the approval gate can demand an explicit `--accept-risk "<reason>"`.
+  const hasCriticalRed = eligible.some(
+    (entry) => entry.verdict === "RED"
+      && Array.isArray(entry.findings)
+      && entry.findings.some((finding) => finding.severity === "critical")
+  );
+  const greenRatio = eligible.length === 0 ? 0 : counts.GREEN / eligible.length;
+  const twoThirdsGreen = eligible.length > 0 && greenRatio >= 2 / 3 && !hasCriticalRed;
+  const unanimousGreen = eligible.length > 0 && counts.GREEN === eligible.length;
+
   let verdict;
+  let conditional = false;
   if (eligible.length === 0) {
     verdict = "RED";
   } else if (eligible.length < quorum) {
     verdict = "INCONCLUSIVE";
+  } else if (unanimousGreen) {
+    verdict = "GREEN";
+  } else if (twoThirdsGreen) {
+    verdict = "GREEN";
+    conditional = true;
   } else if (counts.RED > 0) {
     verdict = "RED";
   } else if (counts.YELLOW > 0) {
@@ -145,6 +164,7 @@ export function aggregateVerdicts(verdicts, options = {}) {
 
   return {
     verdict,
+    conditional,
     reviewerCount: verdicts.length,
     countedReviewerCount: eligible.length,
     coverageComplete: ineligible.length === 0 && verdicts.length > 0,
