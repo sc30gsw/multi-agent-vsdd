@@ -884,21 +884,16 @@ export async function generatePlanArtifacts(repoRoot, feature, options = {}) {
     await ensureDir(path.join(root, "workspace/runtime", unit.id));
   }
 
+  // plan §0.4: coverage matrix is a scaffold — each REQ defaults to the
+  // verify command until the user supplies feature-specific assertions.
+  const defaultVerification = [state.verifyCommand || "npm test"];
   await writeJson(path.join(root, "traceability/coverage-matrix.json"), {
     generatedAt: timestamp,
     requirements: requirements.map((requirement) => ({
       id: requirement.id,
       title: requirement.title,
       units: requirement.units,
-      verification: requirement.id === "REQ-1"
-        ? ["invalid-start TypeError", "invalid-end TypeError", "descending RangeError"]
-        : requirement.id === "REQ-4"
-          ? ["sumRange single-point", "sumRange zero-crossing-or-negative"]
-          : requirement.id === "REQ-5"
-            ? ["describeRange single-point", "describeRange zero-crossing-or-negative", "describeRange fractional-average"]
-            : requirement.id === "REQ-7"
-              ? ["node:test validation coverage", "src/range.js static diff review"]
-              : ["npm test"]
+      verification: defaultVerification
     }))
   });
 
@@ -935,82 +930,18 @@ export async function generatePlanArtifacts(repoRoot, feature, options = {}) {
 }
 
 function buildRequirements(state) {
+  // plan §0.4: v1 scaffold emits a single goal-derived REQ. Users add more
+  // requirements manually before plan-review — hardcoded REQ-1..7 caused
+  // the "first review always RED" bug because Codex was flagging the
+  // scaffold's internal inconsistencies, not the user's plan.
+  const goal = (state.goal || `Deliver feature ${state.feature}`).trim();
+  const verifyCommand = state.verifyCommand || "npm test";
   return [
     {
-      id: "REQ-1a",
-      title: "sumRange rejects non-integer start",
-      summary:
-        "sumRange(start,end) must throw TypeError('start must be an integer') when start is not an integer.",
+      id: "REQ-1",
+      title: "Complete the stated feature goal",
+      summary: `Complete the feature as stated in the goal (\"${goal}\") and prove it by \`${verifyCommand}\` passing on the live target repo. Expand this requirements index with feature-specific REQs before running plan-review.`,
       units: ["sample-logic", "sample-tests"]
-    },
-    {
-      id: "REQ-1b",
-      title: "sumRange rejects non-integer end",
-      summary:
-        "sumRange(start,end) must throw TypeError('end must be an integer') when end is not an integer.",
-      units: ["sample-logic", "sample-tests"]
-    },
-    {
-      id: "REQ-1c",
-      title: "describeRange rejects non-integer start",
-      summary:
-        "describeRange(start,end) must throw TypeError('start must be an integer') when start is not an integer.",
-      units: ["sample-logic", "sample-tests"]
-    },
-    {
-      id: "REQ-1d",
-      title: "describeRange rejects non-integer end",
-      summary:
-        "describeRange(start,end) must throw TypeError('end must be an integer') when end is not an integer.",
-      units: ["sample-logic", "sample-tests"]
-    },
-    {
-      id: "REQ-1e",
-      title: "Both helpers reject descending ranges",
-      summary:
-        "sumRange and describeRange must both throw RangeError('start must be less than or equal to end') when start > end.",
-      units: ["sample-logic", "sample-tests"]
-    },
-    {
-      id: "REQ-2",
-      title: "Add sumRange",
-      summary: "Implement sumRange(start, end) in the sample app range module.",
-      units: ["sample-logic"]
-    },
-    {
-      id: "REQ-3",
-      title: "Add describeRange",
-      summary:
-        "Implement describeRange(start, end) with start, end, count, values, sum, and average.",
-      units: ["sample-logic"]
-    },
-    {
-      id: "REQ-4",
-      title: "Representative sumRange cases",
-      summary:
-        "Verification must cover BOTH a single-point (sumRange(7,7)===7) AND a zero-crossing range (sumRange(-2,2)===0) for sumRange.",
-      units: ["sample-tests"]
-    },
-    {
-      id: "REQ-5",
-      title: "Representative describeRange cases",
-      summary:
-        "Verification must cover single-point, zero-crossing or negative, AND a fractional-average case (e.g. describeRange(0,1).average===0.5) for describeRange.",
-      units: ["sample-tests"]
-    },
-    {
-      id: "REQ-6",
-      title: "Export from index",
-      summary:
-        "Export the new range helpers from src/index.js and prove the public entrypoint by importing and executing both helpers through src/index.js.",
-      units: ["sample-logic", "sample-tests"]
-    },
-    {
-      id: "REQ-7",
-      title: "Static reuse audit recorded",
-      summary:
-        "Before impl-review can return GREEN, specs/reuse-evidence.md must be filled in confirming the new helpers delegate to normalizeRange/listRange/sum instead of duplicating range math.",
-      units: ["sample-audit"]
     }
   ];
 }
@@ -1141,6 +1072,9 @@ function renderBehavioralSpec(state) {
 }
 
 function renderVerificationArchitecture(state) {
+  // plan §0.4: v1 scaffold is intentionally minimal. The user adds
+  // REQ-specific rows after understanding the feature. See plan.md /
+  // specs/requirements-index.json (which this file cross-references).
   return [
     "# Verification Architecture",
     "",
@@ -1156,55 +1090,39 @@ function renderVerificationArchitecture(state) {
     "- `verification/profile.json` (effective tier + command resolution)",
     "- `verification/reports/<unit>.md` (per-unit stdout/stderr excerpt)",
     "- `operations/<unit>/operations.json` (deterministic staged diff per unit; required review evidence for impl-review)",
-    "- `specs/reuse-evidence.md` (REQ-7 static review evidence; updated during fix loop)",
+    "- `specs/reuse-evidence.md` (optional — enable if you want REQ-7-style static audit)",
     "- `traceability/contract-chain.jsonl` (append-only audit log)",
     "",
-    "Requirement-to-verification matrix (each REQ maps to an explicit test or artifact):",
+    "Requirement-to-verification matrix (fill in per REQ after you expand `specs/requirements-index.json`):",
     "",
-    "- REQ-1a: `sumRange` rejects non-integer `start` with exact `TypeError('start must be an integer')`.",
-    "- REQ-1b: `sumRange` rejects non-integer `end` with exact `TypeError('end must be an integer')`.",
-    "- REQ-1c: `describeRange` rejects non-integer `start` with the same exact `TypeError`.",
-    "- REQ-1d: `describeRange` rejects non-integer `end` with the same exact `TypeError`.",
-    "- REQ-1e: `sumRange` and `describeRange` both reject descending ranges with exact `RangeError('start must be less than or equal to end')`.",
-    "- REQ-2: `sumRange(start, end)` is asserted against inclusive sums.",
-    "- REQ-3: `describeRange(start, end)` is asserted for object shape and aggregate values.",
-    "- REQ-4: `sumRange` representative inputs include `sumRange(7,7)===7` and `sumRange(-2,2)===0` as fixed required cases.",
-    "- REQ-5: `describeRange` representative inputs include single-point, zero-crossing or negative values, AND a fractional average (all three asserted).",
-    "- REQ-6: `src/index.js` export surface is asserted by importing the public entrypoint and executing both helpers through that entrypoint.",
-    "- REQ-7: `sample-audit` owns `specs/reuse-evidence.md`, reviews `operations/sample-logic/operations.json`, and impl-review is a hard gate until the audit checklist plus Reviewer/Reviewed at/Conclusion fields are completed.",
+    `- REQ-1 (scaffold): \`${state.verifyCommand}\` passes on the live target repo after apply. Replace this row with feature-specific REQs before running \`/mavsdd-plan-review\`.`,
     "",
-    "Unit-level success contracts:",
+    "Unit-level success contracts (edit per feature):",
     "",
-    "- `sample-logic`: success requires `operations/sample-logic/operations.json` to record changed paths plus `requirementCoverage` for REQ-1a/REQ-1b/REQ-1c/REQ-1d/REQ-1e/REQ-2/REQ-3/REQ-6, including both `src/range.js` and `src/index.js`, and the shared `npm test` run in `verification/summary.json` to pass.",
-    "- `sample-tests`: success requires the shared `npm test` run to pass and `verification/reports/sample-tests.md` to be present.",
-    "- `sample-audit`: success requires `specs/reuse-evidence.md` to contain a completed checklist plus Reviewer/Reviewed at/Conclusion fields, and that document must cite `operations/sample-logic/operations.json` and `verification/summary.json`."
+    "- Each unit's `operations/<unit>/operations.json` must record `changedPaths` plus `requirementCoverage` naming every REQ it claims to satisfy.",
+    `- The shared \`${state.verifyCommand}\` run recorded in \`verification/summary.json\` must pass before \`/mavsdd-approve-impl\`.`
   ].join("\n");
 }
 
 function renderReuseEvidenceTemplate(state) {
+  // plan §0.4: optional artifact. Keep it as a skeleton the user can
+  // either flesh out (for audit-heavy features) or delete entirely.
   return [
-    "# Reuse Evidence (REQ-7)",
+    `# Reuse Evidence — ${state.feature} (optional)`,
     "",
-    `Feature: \`${state.feature}\``,
+    "This file is a **scaffold** for features where the impl-review needs a",
+    "static reuse audit. If your feature does not need one, delete this file",
+    "and drop `specs/reuse-evidence.md` from `IMPL_ARTIFACTS` overrides.",
     "",
-    "Owner unit: `sample-audit`",
+    "## Checklist (edit per feature)",
     "",
-    "This document records the static audit that the implementation review must complete before an impl-review GREEN verdict is possible.",
-    "`approve-impl` must fail closed until every checklist item is checked and the evidence fields below are populated.",
-    "",
-    "## Checklist",
-    "",
-    "- [ ] `sumRange(start, end)` delegates to `listRange` + `sum` (no duplicated loop over `start..end`).",
-    "  Evidence refs: ",
-    "- [ ] `describeRange(start, end)` delegates to `normalizeRange`, `listRange`, and `sum` for the aggregate (no re-computing the range walk).",
-    "  Evidence refs: ",
-    "- [ ] No new helpers re-implement `normalizeRange`'s validation logic locally.",
+    "- [ ] No new helpers duplicate existing validation / transformation logic.",
     "  Evidence refs: ",
     "",
-    "## Evidence (to be filled in during impl-review)",
+    "## Evidence (fill in during impl-review if the checklist is active)",
     "",
-    "- Diff reviewed: `operations/sample-logic/operations.json`",
-    "- Supporting verification: `verification/summary.json`",
+    "- Diff reviewed: ",
+    "- Supporting verification: ",
     "- Reviewer: ",
     "- Reviewed at: ",
     "- Conclusion: ",
@@ -1212,33 +1130,22 @@ function renderReuseEvidenceTemplate(state) {
   ].join("\n");
 }
 
-function renderTestStrategy() {
+function renderTestStrategy(state) {
+  const verifyCommand = state?.verifyCommand || "npm test";
   return [
     "# Test Strategy",
     "",
-    "- Keep the existing `node:test` runner; every REQ maps to at least one assertion.",
+    `- Keep \`${verifyCommand}\` green after apply; every REQ in \`specs/requirements-index.json\` should map to at least one assertion.`,
     "",
-    "Mandatory test cases (each line = one `test(...)`):",
+    "Edit this file per feature:",
     "",
-    "- REQ-1a: `sumRange('1', 3)` → `TypeError` with exact `\"start must be an integer\"`.",
-    "- REQ-1b: `sumRange(1, '3')` → `TypeError` with exact `\"end must be an integer\"`.",
-    "- REQ-1c: `describeRange('1', 3)` → `TypeError` with exact `\"start must be an integer\"`.",
-    "- REQ-1d: `describeRange(1, '3')` → `TypeError` with exact `\"end must be an integer\"`.",
-    "- REQ-1e: both `sumRange(5, 1)` and `describeRange(5, 1)` → `RangeError` with exact `\"start must be less than or equal to end\"`.",
-    "- REQ-2: `sumRange(1, 4) === 10`.",
-    "- REQ-3: `describeRange(2, 4)` matches `{start:2,end:4,count:3,values:[2,3,4],sum:9,average:3}`.",
-    "- REQ-4a: `sumRange(7, 7) === 7` (single-point).",
-    "- REQ-4b: `sumRange(-2, 2) === 0` (zero-crossing / negative).",
-    "- REQ-5a: `describeRange(5, 5)` exactly matches `{start:5,end:5,count:1,values:[5],sum:5,average:5}`.",
-    "- REQ-5b: `describeRange(-2, 2)` exactly matches `{start:-2,end:2,count:5,values:[-2,-1,0,1,2],sum:0,average:0}`.",
-    "- REQ-5c: `describeRange(0, 1).average === 0.5` (fractional average).",
-    "- REQ-6a: importing from `src/index.js` returns callable `sumRange` and `describeRange`.",
-    "- REQ-6b: `sumRange(1, 4)` executed through `src/index.js` returns `10`.",
-    "- REQ-6c: `describeRange(2, 4)` executed through `src/index.js` returns the expected aggregate object.",
+    "- Add one bullet per REQ describing the concrete test case that proves it.",
+    "- Cover happy path + at least one boundary / failure case per new public API.",
+    "- If you expand `specs/reuse-evidence.md` into a hard review gate, note it at the bottom under \"Non-test review gates\".",
     "",
-    "Non-test review gates:",
+    "Scaffolded cases (replace when you know the feature):",
     "",
-    "- REQ-7: impl-review must fail closed until `sample-audit` records a completed static reuse audit in `specs/reuse-evidence.md` using `operations/sample-logic/operations.json` and `verification/summary.json`."
+    `- REQ-1: the feature goal is verified end-to-end by \`${verifyCommand}\` passing.`
   ].join("\n");
 }
 

@@ -53,12 +53,13 @@ test("init, plan, red, and resume create the expected runtime state", async () =
       "utf8"
     )
   );
-  assert.equal(requirements.length, 11);
-  assert.deepEqual(
-    requirements.find((requirement) => requirement.id === "REQ-7")?.units,
-    ["sample-audit"]
-  );
-  assert.ok(team.units.some((unit) => unit.id === "sample-audit"));
+  // plan §0.4: v1 scaffold emits a single goal-derived REQ. Users expand
+  // specs/requirements-index.json manually before plan-review. The default
+  // team composition still exposes sample-audit for audit-heavy features.
+  assert.equal(requirements.length, 1);
+  assert.equal(requirements[0].id, "REQ-1");
+  assert.match(requirements[0].summary, /Complete the feature as stated in the goal/);
+  assert.ok(team.units.some((unit) => unit.id === "sample-logic"));
 });
 
 test("init accepts target-repo aliases for fresh sample apps", async () => {
