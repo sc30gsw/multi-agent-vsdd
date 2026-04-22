@@ -411,7 +411,7 @@ export async function ensureFeatureScaffold(repoRoot, feature) {
 export async function createFeatureState(repoRoot, feature, options = {}) {
   const targetRepo = options.target
     ? path.resolve(repoRoot, options.target)
-    : path.resolve(repoRoot, "sample/xxx-app");
+    : path.resolve(repoRoot, "sample/sample-app");
 
   const title = options.title || `Deliver ${feature}`;
   const goal =
@@ -1138,6 +1138,8 @@ function renderConvergenceChecklist(state, verified) {
 }
 
 function renderPlannerBrief(state, team) {
+  const targetRangePath = `${state.targetRepoRelative}/src/range.js`;
+  const targetTestPath = `${state.targetRepoRelative}/tests/range.test.js`;
   return [
     "# Planner Brief",
     "",
@@ -1145,7 +1147,7 @@ function renderPlannerBrief(state, team) {
     "",
     "Drive the feature through the trusted CLI. Keep all canonical state under `.mavsdd/`.",
     "The existing sample implementation already exposes `normalizeRange`, `listRange`, and `sum`; plan around reusing them instead of duplicating logic.",
-    "Baseline evidence before planning: `sample/xxx-app/src/range.js` defines `normalizeRange`, `listRange`, and `sum`, and `sample/xxx-app/tests/range.test.js` already proves `sum(listRange(1, 4)) === 10`.",
+    `Baseline evidence before planning: \`${targetRangePath}\` defines \`normalizeRange\`, \`listRange\`, and \`sum\`, and \`${targetTestPath}\` already proves \`sum(listRange(1, 4)) === 10\`.`,
     "",
     "Units:",
     "",
