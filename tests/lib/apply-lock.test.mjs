@@ -54,6 +54,27 @@ test("acquireLock refuses a second acquisition while held", async () => {
   }
 });
 
+test("acquireLock persists applyTxnId, baselineId, and status in the lock body", async () => {
+  const repoRoot = await makeRepo();
+  try {
+    await acquireLock(repoRoot, {
+      feature: "demo",
+      pid: 11,
+      nonce: "n1",
+      applyTxnId: "apply-abc123",
+      baselineId: "base-xyz",
+      status: "running"
+    });
+    const body = await readLock(repoRoot);
+    assert.equal(body.applyTxnId, "apply-abc123");
+    assert.equal(body.baselineId, "base-xyz");
+    assert.equal(body.status, "running");
+  } finally {
+    await releaseLock(repoRoot);
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("verifyLock validates token + parent pid", async () => {
   const repoRoot = await makeRepo();
   try {

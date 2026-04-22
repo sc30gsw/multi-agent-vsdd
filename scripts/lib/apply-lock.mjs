@@ -28,12 +28,15 @@ export async function readLock(repoRoot) {
   }
 }
 
-export async function acquireLock(repoRoot, { feature, pid, nonce }) {
+export async function acquireLock(repoRoot, { feature, pid, nonce, applyTxnId, baselineId, status = "running" }) {
   const absolute = lockPath(repoRoot);
   const body = {
     feature,
     pid,
     nonce,
+    applyTxnId: applyTxnId ?? null,
+    baselineId: baselineId ?? null,
+    status,
     startedAt: new Date().toISOString()
   };
   await fs.mkdir(path.dirname(absolute), { recursive: true });

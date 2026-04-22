@@ -1244,10 +1244,14 @@ export async function materializeWorkspaces(repoRoot, feature) {
   await copyTree(state.targetRepo, repoDir);
 
   const baselineManifest = await buildFileManifest(baseDir);
+  const baselineFilesJson = JSON.stringify(baselineManifest, Object.keys(baselineManifest).sort());
+  const baselineId = `base-${sha256Text(`${feature}:${baselineFilesJson}`).slice(0, 12)}`;
   await writeJson(path.join(root, "workspace/baseline-manifest.json"), {
+    baselineId,
     generatedAt: nowIso(),
     files: baselineManifest
   });
+  state.workspace = { ...(state.workspace || {}), baselineId, materializedAt: nowIso() };
   for (const unit of teamComposition.units) {
     await ensureDir(path.join(root, "workspace/runtime", unit.id));
   }
@@ -1575,6 +1579,7 @@ export async function stageOperations(repoRoot, feature) {
     const manifest = {
       feature,
       unitId,
+      baselineId: baselineManifest.baselineId ?? null,
       generatedAt: nowIso(),
       operations
     };
@@ -1609,23 +1614,93 @@ export async function applyOperations(repoRoot, feature, options = {}) {
   const state = await loadState(repoRoot, feature);
   ensureCommandEntryPhase(state, "apply");
   const root = featureRoot(repoRoot, feature);
-  const applyTxnId = buildId("apply", `${feature}:${nowIso()}`);
+
+  const operationsDir = path.join(root, "operations");
+  const unitDirs = await fs.readdir(operationsDir);
+  const manifestsByUnit = [];
+  const perUnitBaselineIds = new Set();
+  for (const unit of unitDirs) {
+    const manifest = await readJson(path.join(operationsDir, unit, "operations.json"), { operations: [] });
+    manifestsByUnit.push({ unit, manifest });
+    if (manifest.baselineId) perUnitBaselineIds.add(manifest.baselineId);
+  }
+  if (perUnitBaselineIds.size > 1) {
+    throw new Error(
+      `operations.json baselineId mismatch across units: ${[...perUnitBaselineIds].join(", ")}`
+    );
+  }
+  const baselineId = [...perUnitBaselineIds][0] ?? null;
+  const opDigestSource = manifestsByUnit
+    .flatMap(({ unit, manifest }) =>
+      (manifest.operations || []).map((operation) =>
+        JSON.stringify({
+          unit,
+          op: operation.op ?? operation.kind,
+          path: operation.path ?? null,
+          from: operation.from ?? null,
+          to: operation.to ?? null,
+          baseHash: operation.baseHash ?? null,
+          contentHash: operation.contentHash ?? operation.newHash ?? null,
+          mode: operation.mode ?? null
+        })
+      )
+    )
+    .sort()
+    .join("|");
+  const applyTxnId = `apply-${sha256Text(
+    `${feature}::${baselineId ?? "no-baseline"}::${opDigestSource}`
+  ).slice(0, 12)}`;
+
+  const applyLogPath = path.join(root, "apply-log.jsonl");
+  if (await pathExists(applyLogPath)) {
+    const logBody = await fs.readFile(applyLogPath, "utf8");
+    const committedTxn = logBody
+      .split(/\n+/)
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry) => entry && entry.applyTxnId === applyTxnId && entry.status === "committed");
+    if (committedTxn.length > 0) {
+      await appendRunMetadata(repoRoot, feature, {
+        command: "apply",
+        kind: "orchestration",
+        status: "skipped",
+        detail: { feature, applyTxnId, reason: "idempotent_same_txn_already_committed" }
+      });
+      return {
+        feature,
+        applyTxnId,
+        appliedCount: committedTxn[0].appliedCount ?? 0,
+        idempotent: true
+      };
+    }
+  }
+
   const lockAlready = await isLocked(repoRoot);
   if (lockAlready && !options.inheritLock) {
     throw new Error(`Apply lock already exists: ${path.join(repoRoot, ".mavsdd/.apply-lock")}`);
   }
   const nonce = options.nonce ?? generateNonce();
   if (!options.inheritLock) {
-    await acquireLock(repoRoot, { feature, pid: process.pid, nonce });
+    await acquireLock(repoRoot, {
+      feature,
+      pid: process.pid,
+      nonce,
+      applyTxnId,
+      baselineId,
+      status: "running"
+    });
   }
 
   try {
-    const operationsDir = path.join(root, "operations");
-    const units = await fs.readdir(operationsDir);
     let appliedCount = 0;
 
-    for (const unit of units) {
-      const manifest = await readJson(path.join(operationsDir, unit, "operations.json"), { operations: [] });
+    for (const { unit, manifest } of manifestsByUnit) {
       for (const operation of manifest.operations) {
         const op = operation.op
           ?? (operation.kind === "modify"
