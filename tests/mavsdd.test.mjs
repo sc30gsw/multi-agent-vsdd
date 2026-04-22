@@ -41,15 +41,24 @@ test("init, plan, red, and resume create the expected runtime state", async () =
   assert.equal(status.phase, "red");
   assert.equal(status.targetRepo, "sample/sample-app");
   assert.match(resume.nextCommand, /implement/);
-  assert.equal(
-    JSON.parse(
-      await fs.readFile(
-        path.join(repoRoot, ".mavsdd/features/sample-feature/specs/requirements-index.json"),
-        "utf8"
-      )
-    ).requirements.length,
-    11
+  const requirements = JSON.parse(
+    await fs.readFile(
+      path.join(repoRoot, ".mavsdd/features/sample-feature/specs/requirements-index.json"),
+      "utf8"
+    )
+  ).requirements;
+  const team = JSON.parse(
+    await fs.readFile(
+      path.join(repoRoot, ".mavsdd/features/sample-feature/team-composition.json"),
+      "utf8"
+    )
   );
+  assert.equal(requirements.length, 11);
+  assert.deepEqual(
+    requirements.find((requirement) => requirement.id === "REQ-7")?.units,
+    ["sample-audit"]
+  );
+  assert.ok(team.units.some((unit) => unit.id === "sample-audit"));
 });
 
 test("stage, apply, verify, and aggregate remain deterministic", async () => {
@@ -108,6 +117,37 @@ test("stage, apply, verify, and aggregate remain deterministic", async () => {
     updatedAt: new Date().toISOString(),
     changedFiles: []
   });
+  await writeJson(path.join(root, "implementations/sample-audit/status.json"), {
+    unit: "sample-audit",
+    status: "implemented",
+    updatedAt: new Date().toISOString(),
+    changedFiles: ["specs/reuse-evidence.md"]
+  });
+  await fs.writeFile(
+    path.join(root, "specs/reuse-evidence.md"),
+    [
+      "# Reuse Evidence (REQ-7)",
+      "",
+      "Feature: `sample-feature`",
+      "",
+      "Owner unit: `sample-audit`",
+      "",
+      "## Checklist",
+      "",
+      "- [x] `sumRange(start, end)` delegates to `listRange` + `sum` (no duplicated loop over `start..end`).",
+      "- [x] `describeRange(start, end)` delegates to `normalizeRange`, `listRange`, and `sum` for the aggregate (no re-computing the range walk).",
+      "- [x] No new helpers re-implement `normalizeRange`'s validation logic locally.",
+      "",
+      "## Evidence",
+      "",
+      "- Diff reviewed: `operations/sample-logic/operations.json`",
+      "- Supporting verification: `verification/summary.json` (PASS)",
+      "- Reviewer: trusted-cli/sample-audit",
+      "- Reviewed at: 2026-04-22T00:00:00.000Z",
+      "- Conclusion: complete",
+      ""
+    ].join("\n")
+  );
 
   const staged = await stageOperations(repoRoot, "sample-feature");
   assert.equal(staged.operationsByUnit["sample-logic"].length, 1);
@@ -196,7 +236,7 @@ test("orphan approval creates a patch overlay for temporary units", async () => 
   });
 
   const effectiveTeam = await loadEffectiveTeamComposition(repoRoot, "sample-feature");
-  assert.equal(effectiveTeam.units.length, 3);
+  assert.equal(effectiveTeam.units.length, 4);
   assert.ok(effectiveTeam.patch);
   await fs.access(
     path.join(
@@ -280,6 +320,37 @@ test("prepareFixes excludes review_meta findings from actionable clusters", asyn
 
   const fixResult = await prepareFixes(repoRoot, "sample-feature");
   assert.equal(fixResult.clusterCount, 1);
+});
+
+test("approve-impl fails closed until reuse evidence is complete", async () => {
+  const repoRoot = await makeTempRepo();
+  await createSampleTarget(repoRoot);
+  await createFeatureState(repoRoot, "sample-feature", {
+    target: "sample/sample-app",
+    "verify-command": "npm test"
+  });
+  await generatePlanArtifacts(repoRoot, "sample-feature");
+
+  const root = path.join(repoRoot, ".mavsdd/features/sample-feature");
+  await writeJson(path.join(root, "reviews/impl/iteration-1/aggregate.json"), {
+    feature: "sample-feature",
+    scope: "impl",
+    iteration: 1,
+    verdict: "GREEN",
+    coverageComplete: true,
+    counts: { GREEN: 1, YELLOW: 0, RED: 0 },
+    findings: []
+  });
+  const statePath = path.join(root, "feature-state.json");
+  const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+  state.phase = "impl_reviewed";
+  state.reviewIterations.impl = 1;
+  await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+
+  await assert.rejects(
+    () => recordApproval(repoRoot, "sample-feature", "implementation", { by: "tester" }),
+    /completed specs\/reuse-evidence\.md audit/
+  );
 });
 
 async function makeTempRepo() {

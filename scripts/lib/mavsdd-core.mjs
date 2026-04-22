@@ -125,10 +125,21 @@ const PLAN_ARTIFACTS = [
 
 const IMPL_ARTIFACTS = [
   "operations",
+  "apply-log.jsonl",
   "verification/summary.json",
   "verification/profile.json",
   "implementations",
-  "contexts/codex-rubric-impl.md"
+  "plan.md",
+  "team-composition.json",
+  "specs/behavioral-spec.md",
+  "specs/requirements-index.json",
+  "specs/verification-architecture.md",
+  "specs/test-strategy.md",
+  "specs/reuse-evidence.md",
+  "specs/convergence-checklist.md",
+  "contexts/codex-rubric-impl.md",
+  "contexts/planner-brief.md",
+  "contexts/repo-pointers.md"
 ];
 
 const EMPTY_JSON_FILES = {
@@ -995,7 +1006,7 @@ function buildRequirements(state) {
       title: "Static reuse audit recorded",
       summary:
         "Before impl-review can return GREEN, specs/reuse-evidence.md must be filled in confirming the new helpers delegate to normalizeRange/listRange/sum instead of duplicating range math.",
-      units: ["sample-logic", "sample-tests"]
+      units: ["sample-audit"]
     }
   ];
 }
@@ -1044,6 +1055,22 @@ function buildTeamComposition(state) {
         readFiles: ["src/range.js", "src/index.js"],
         verificationTier: "tier0",
         briefPath: "contexts/unit-sample-tests.md"
+      },
+      {
+        id: "sample-audit",
+        role: "auditor",
+        paths: ["specs/reuse-evidence.md"],
+        dependsOn: ["sample-logic", "sample-tests"],
+        writePaths: ["specs/"],
+        writeFiles: ["specs/reuse-evidence.md"],
+        readPaths: ["operations/", "verification/", "specs/"],
+        readFiles: [
+          "operations/sample-logic/operations.json",
+          "verification/summary.json",
+          "specs/reuse-evidence.md"
+        ],
+        verificationTier: "tier0",
+        briefPath: "contexts/unit-sample-audit.md"
       }
     ]
   };
@@ -1062,6 +1089,11 @@ function renderPlanMarkdown(state, requirements, team) {
     `- Path: \`${state.targetRepoRelative}\``,
     `- Verify: \`${state.verifyCommand}\``,
     "",
+    "## Canonical State",
+    "",
+    `- All canonical workflow artifacts live under \`.mavsdd/features/${state.feature}/\`.`,
+    "- Paths like `specs/...`, `verification/...`, and `operations/...` are relative to that feature root.",
+    "",
     "## Requirements",
     "",
     ...requirements.map((requirement) => `- ${requirement.id}: ${requirement.summary}`),
@@ -1074,6 +1106,12 @@ function renderPlanMarkdown(state, requirements, team) {
           unit.dependsOn.length ? ` (depends on ${unit.dependsOn.join(", ")})` : ""
         }`
     ),
+    "",
+    "## Unit Verification Gates",
+    "",
+    "- `sample-logic`: proven by `operations/sample-logic/operations.json` plus a green shared `npm test` run after apply.",
+    "- `sample-tests`: proven by the shared `npm test` run and `verification/reports/sample-tests.md`.",
+    "- `sample-audit`: proven by a completed `specs/reuse-evidence.md` linked to `operations/sample-logic/operations.json` and `verification/summary.json`.",
     ""
   ].join("\n");
 }
@@ -1102,6 +1140,7 @@ function renderVerificationArchitecture(state) {
   return [
     "# Verification Architecture",
     "",
+    `- Canonical feature root: \`.mavsdd/features/${state.feature}/\``,
     `- Live target: \`${state.targetRepoRelative}\``,
     "- Workspace base is immutable; workspace repo is the only writable implementation copy.",
     "- Stage compares workspace base and workspace repo deterministically; operations.json carries the baselineId.",
@@ -1112,6 +1151,7 @@ function renderVerificationArchitecture(state) {
     "- `verification/summary.json` (overallVerdict, per-unit commands, exit codes)",
     "- `verification/profile.json` (effective tier + command resolution)",
     "- `verification/reports/<unit>.md` (per-unit stdout/stderr excerpt)",
+    "- `operations/<unit>/operations.json` (deterministic staged diff per unit; required review evidence for impl-review)",
     "- `specs/reuse-evidence.md` (REQ-7 static review evidence; updated during fix loop)",
     "- `traceability/contract-chain.jsonl` (append-only audit log)",
     "",
@@ -1127,7 +1167,13 @@ function renderVerificationArchitecture(state) {
     "- REQ-4: `sumRange` representative inputs include a single-point range AND a zero-crossing or negative range (both cases asserted).",
     "- REQ-5: `describeRange` representative inputs include single-point, zero-crossing or negative values, AND a fractional average (all three asserted).",
     "- REQ-6: `src/index.js` export surface is asserted by importing the public entrypoint and invoking each new helper at least once.",
-    "- REQ-7: implementation review records a static reuse audit in `specs/reuse-evidence.md` confirming the new helpers delegate to `normalizeRange`, `listRange`, and/or `sum`; the impl-review aggregate rejects any finding flagging duplicated range math."
+    "- REQ-7: `sample-audit` owns `specs/reuse-evidence.md`, reviews `operations/sample-logic/operations.json`, and impl-review is a hard gate until the audit checklist plus Reviewer/Reviewed at/Conclusion fields are completed.",
+    "",
+    "Unit-level success contracts:",
+    "",
+    "- `sample-logic`: success requires `operations/sample-logic/operations.json` to exist and the shared `npm test` run in `verification/summary.json` to pass.",
+    "- `sample-tests`: success requires the shared `npm test` run to pass and `verification/reports/sample-tests.md` to be present.",
+    "- `sample-audit`: success requires `specs/reuse-evidence.md` to contain a completed checklist plus Reviewer/Reviewed at/Conclusion fields, and that document must cite `operations/sample-logic/operations.json` and `verification/summary.json`."
   ].join("\n");
 }
 
@@ -1137,7 +1183,10 @@ function renderReuseEvidenceTemplate(state) {
     "",
     `Feature: \`${state.feature}\``,
     "",
+    "Owner unit: `sample-audit`",
+    "",
     "This document records the static audit that the implementation review must complete before an impl-review GREEN verdict is possible.",
+    "`approve-impl` must fail closed until every checklist item is checked and the evidence fields below are populated.",
     "",
     "## Checklist",
     "",
@@ -1147,7 +1196,8 @@ function renderReuseEvidenceTemplate(state) {
     "",
     "## Evidence (to be filled in during impl-review)",
     "",
-    "- Diff reviewed: `operations/<unit>/operations.json`",
+    "- Diff reviewed: `operations/sample-logic/operations.json`",
+    "- Supporting verification: `verification/summary.json`",
     "- Reviewer: ",
     "- Reviewed at: ",
     "- Conclusion: ",
@@ -1176,7 +1226,7 @@ function renderTestStrategy() {
     "- REQ-5b: `describeRange(-2, 2)` zero-crossing shape.",
     "- REQ-5c: `describeRange(0, 1).average === 0.5` (fractional average).",
     "- REQ-6: importing from `src/index.js` returns the full exported surface including `sumRange` and `describeRange`.",
-    "- REQ-7: static reuse audit recorded in `specs/reuse-evidence.md` before impl-review GREEN is possible."
+    "- REQ-7: impl-review must fail closed until `sample-audit` records a completed static reuse audit in `specs/reuse-evidence.md` using `operations/sample-logic/operations.json` and `verification/summary.json`."
   ].join("\n");
 }
 
@@ -1221,7 +1271,7 @@ function renderPlannerBrief(state, team) {
     "",
     `Goal: ${state.goal}`,
     "",
-    "Drive the feature through the trusted CLI. Keep all canonical state under `.mavsdd/`.",
+    `Drive the feature through the trusted CLI. Keep all canonical state under \`.mavsdd/features/${state.feature}/\`.`,
     "The existing sample implementation already exposes `normalizeRange`, `listRange`, and `sum`; plan around reusing them instead of duplicating logic.",
     `Baseline evidence before planning: \`${targetRangePath}\` defines \`normalizeRange\`, \`listRange\`, and \`sum\`, and \`${targetTestPath}\` already proves \`sum(listRange(1, 4)) === 10\`.`,
     "",
@@ -1246,6 +1296,9 @@ function renderRepoPointers(state) {
 }
 
 function renderUnitBrief(state, unit) {
+  const implementationNote = unit.id === "sample-audit"
+    ? "Review staged operations and verification artifacts, then update specs/reuse-evidence.md with a completed static audit."
+    : "Preserve the existing `normalizeRange` contract and prefer reuse over duplicate range logic.";
   return [
     `# Unit ${unit.id}`,
     "",
@@ -1256,8 +1309,116 @@ function renderUnitBrief(state, unit) {
     `Paths: ${unit.paths.join(", ")}`,
     unit.dependsOn.length ? `Depends on: ${unit.dependsOn.join(", ")}` : "Depends on: none",
     "",
-    "Implementation note: preserve the existing `normalizeRange` contract and prefer reuse over duplicate range logic."
+    `Implementation note: ${implementationNote}`
   ].join("\n");
+}
+
+function extractFunctionBody(source, name) {
+  const match = source.match(new RegExp(`export function ${name}\\([^)]*\\) \\{([\\s\\S]*?)\\n\\}`, "m"));
+  return match ? match[1] : "";
+}
+
+function isReuseEvidenceComplete(body) {
+  const source = String(body || "");
+  return [
+    "- [x] `sumRange(start, end)` delegates to `listRange` + `sum` (no duplicated loop over `start..end`).",
+    "- [x] `describeRange(start, end)` delegates to `normalizeRange`, `listRange`, and `sum` for the aggregate (no re-computing the range walk).",
+    "- [x] No new helpers re-implement `normalizeRange`'s validation logic locally."
+  ].every((line) => source.includes(line))
+    && /- Reviewer:\s*\S+/.test(source)
+    && /- Reviewed at:\s*\S+/.test(source)
+    && /- Conclusion:\s*\S+/.test(source);
+}
+
+async function refreshReuseEvidence(repoRoot, feature) {
+  const root = featureRoot(repoRoot, feature);
+  const operationsManifest = await readJson(
+    path.join(root, "operations", "sample-logic", "operations.json"),
+    null
+  );
+  const verificationSummary = await readJson(path.join(root, "verification", "summary.json"), null);
+  if (!operationsManifest) {
+    return false;
+  }
+
+  const rangeOperation = (operationsManifest.operations || []).find(
+    (operation) => operation.path === "src/range.js" && typeof operation.newContent === "string"
+  );
+  const indexOperation = (operationsManifest.operations || []).find(
+    (operation) => operation.path === "src/index.js" && typeof operation.newContent === "string"
+  );
+  if (!rangeOperation) {
+    return false;
+  }
+
+  const rangeSource = rangeOperation.newContent;
+  const sumRangeBody = extractFunctionBody(rangeSource, "sumRange");
+  const describeRangeBody = extractFunctionBody(rangeSource, "describeRange");
+  const checklist = [
+    {
+      label: "`sumRange(start, end)` delegates to `listRange` + `sum` (no duplicated loop over `start..end`).",
+      ok: /return sum\(listRange\(start, end\)\);/.test(sumRangeBody)
+    },
+    {
+      label:
+        "`describeRange(start, end)` delegates to `normalizeRange`, `listRange`, and `sum` for the aggregate (no re-computing the range walk).",
+      ok:
+        /normalizeRange\(start, end\)/.test(describeRangeBody)
+        && /listRange\(normalized\.start, normalized\.end\)/.test(describeRangeBody)
+        && /const total = sum\(values\);/.test(describeRangeBody)
+    },
+    {
+      label: "No new helpers re-implement `normalizeRange`'s validation logic locally.",
+      ok:
+        !/assertWholeNumber\(start/.test(sumRangeBody)
+        && !/assertWholeNumber\(end/.test(sumRangeBody)
+        && !/assertWholeNumber\(start/.test(describeRangeBody)
+        && !/assertWholeNumber\(end/.test(describeRangeBody)
+        && !/Number\.isInteger/.test(sumRangeBody)
+        && !/Number\.isInteger/.test(describeRangeBody)
+    }
+  ];
+  const checklistPassed = checklist.every((item) => item.ok);
+  const verificationStatus = verificationSummary?.success ? "PASS" : "PENDING";
+  const conclusion = checklistPassed
+    ? "Trusted CLI static audit confirms the new helpers reuse normalizeRange/listRange/sum and the verification summary is green."
+    : "Trusted CLI static audit found missing reuse guarantees. Review the unchecked items before approving implementation.";
+
+  await writeText(
+    path.join(root, "specs", "reuse-evidence.md"),
+    [
+      "# Reuse Evidence (REQ-7)",
+      "",
+      `Feature: \`${feature}\``,
+      "",
+      "Owner unit: `sample-audit`",
+      "",
+      "This document records the static audit that the implementation review must complete before an impl-review GREEN verdict is possible.",
+      "`approve-impl` must fail closed until every checklist item is checked and the evidence fields below are populated.",
+      "",
+      "## Checklist",
+      "",
+      ...checklist.map((item) => `- [${item.ok ? "x" : " "}] ${item.label}`),
+      "",
+      "## Evidence (filled by trusted CLI during impl-review preparation)",
+      "",
+      "- Diff reviewed: `operations/sample-logic/operations.json`",
+      `- Supporting verification: \`verification/summary.json\` (${verificationStatus})`,
+      "- Reviewer: trusted-cli/sample-audit",
+      `- Reviewed at: ${nowIso()}`,
+      `- Conclusion: ${conclusion}`,
+      ""
+    ].join("\n")
+  );
+
+  await writeJson(path.join(root, "implementations", "sample-audit", "status.json"), {
+    unit: "sample-audit",
+    status: checklistPassed ? "implemented" : "needs_attention",
+    updatedAt: nowIso(),
+    changedFiles: ["specs/reuse-evidence.md"]
+  });
+
+  return checklistPassed;
 }
 
 export async function generateRedArtifacts(repoRoot, feature) {
@@ -2027,6 +2188,9 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
     throw error;
   }
   const root = featureRoot(repoRoot, feature);
+  if (scope === "impl") {
+    await refreshReuseEvidence(repoRoot, feature);
+  }
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
   const iteration = (state.reviewIterations[scope] || 0) + 1;
   const iterationDir = path.join(root, "reviews", scope, `iteration-${iteration}`);
@@ -2463,6 +2627,16 @@ export async function recordApproval(repoRoot, feature, type, options = {}) {
     aggregateVerdict: aggregate.verdict,
     createdAt: nowIso()
   };
+
+  if (type !== "plan") {
+    if (aggregate.verdict !== "GREEN") {
+      throw new Error("approve-impl requires a GREEN impl aggregate.");
+    }
+    const reuseEvidence = await fs.readFile(path.join(root, "specs/reuse-evidence.md"), "utf8");
+    if (!isReuseEvidenceComplete(reuseEvidence)) {
+      throw new Error("approve-impl requires a completed specs/reuse-evidence.md audit.");
+    }
+  }
 
   await appendJsonl(path.join(root, "human-approvals.jsonl"), entry);
 

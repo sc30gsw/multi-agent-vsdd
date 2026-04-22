@@ -26,6 +26,11 @@
       "model": "sonnet",
       "allowedWritePaths": ["tests/"]
     },
+    "auditor": {
+      "subagent_type": "mavsdd-implementer",
+      "model": "sonnet",
+      "allowedWritePaths": ["specs/"]
+    },
     "fixer": {
       "subagent_type": "mavsdd-fixer",
       "model": "sonnet",
