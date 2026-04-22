@@ -1433,7 +1433,8 @@ export async function runClaudeImplementation(repoRoot, feature) {
       env: {
         ...process.env,
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
-      }
+      },
+      timeoutMs: Number(process.env.MAVSDD_IMPLEMENT_TIMEOUT_MS) || 15 * 60 * 1000
     }
   );
 
@@ -2771,7 +2772,8 @@ export async function runFixWorkflow(repoRoot, feature) {
       env: {
         ...process.env,
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
-      }
+      },
+      timeoutMs: Number(process.env.MAVSDD_IMPLEMENT_TIMEOUT_MS) || 15 * 60 * 1000
     }
   );
 
@@ -3066,17 +3068,26 @@ function runShellCommand(command, cwd) {
 }
 
 export function runProcess(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const spawnOptions = {
     cwd: options.cwd,
     env: options.env,
     input: options.input,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024
-  });
+  };
+  if (typeof options.timeoutMs === "number" && options.timeoutMs > 0) {
+    spawnOptions.timeout = options.timeoutMs;
+    spawnOptions.killSignal = "SIGTERM";
+  }
+  const result = spawnSync(command, args, spawnOptions);
 
+  const timedOut = Boolean(
+    result.error && (result.error.code === "ETIMEDOUT" || result.signal === "SIGTERM")
+  );
   return {
-    status: result.status ?? 1,
+    status: result.status ?? (timedOut ? 124 : 1),
     stdout: result.stdout || "",
-    stderr: result.stderr || ""
+    stderr: result.stderr || (timedOut ? `process timed out after ${options.timeoutMs}ms` : ""),
+    timedOut
   };
 }
