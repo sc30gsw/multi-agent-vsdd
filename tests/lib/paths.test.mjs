@@ -57,13 +57,33 @@ test("safeCanonical rejects parent-directory traversal", async () => {
   }
 });
 
-test("safeCanonical rejects absolute paths outside the root", async () => {
+test("safeCanonical rejects any absolute path by default (plan §14)", async () => {
   const root = await makeRoot();
   try {
     assert.throws(
       () => safeCanonical("/etc/passwd", root),
+      (error) => error instanceof PathRejection && /absolute paths/.test(error.message)
+    );
+    assert.throws(
+      () => safeCanonical(path.join(root, "src/file.js"), root),
+      (error) => error instanceof PathRejection && /absolute paths/.test(error.message)
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("safeCanonical(allowAbsolute=true) still rejects absolute paths outside the root", async () => {
+  const root = await makeRoot();
+  try {
+    assert.throws(
+      () => safeCanonical("/etc/passwd", root, { allowAbsolute: true }),
       (error) => error instanceof PathRejection && /escapes root/.test(error.message)
     );
+    await fs.mkdir(path.join(root, "src"));
+    await fs.writeFile(path.join(root, "src/file.js"), "x\n");
+    const canonical = safeCanonical(path.join(root, "src/file.js"), root, { allowAbsolute: true });
+    assert.equal(canonical, path.join(root, "src/file.js"));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

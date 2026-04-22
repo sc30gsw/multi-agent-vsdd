@@ -20,6 +20,12 @@ function normalizeInput(input) {
   return input;
 }
 
+function rejectIfAbsolute(input) {
+  if (path.isAbsolute(input) || /^[A-Za-z]:/.test(input)) {
+    throw new PathRejection("absolute paths are not allowed", { input });
+  }
+}
+
 function rejectTraversal(input) {
   const segments = input.split(/[\\/]+/);
   if (segments.some((segment) => segment === "..")) {
@@ -72,13 +78,16 @@ function resolveRealPath(absolutePath, repoAbs) {
   }
 }
 
-export function safeCanonical(inputPath, repoAbs) {
+export function safeCanonical(inputPath, repoAbs, options = {}) {
   if (typeof repoAbs !== "string" || repoAbs.length === 0) {
     throw new PathRejection("repoAbs must be a non-empty absolute path", { repoAbs });
   }
   const normalizedRoot = fs.realpathSync.native(repoAbs);
   const input = normalizeInput(inputPath);
   rejectTraversal(input);
+  if (options.allowAbsolute !== true) {
+    rejectIfAbsolute(input);
+  }
   const absolute = path.isAbsolute(input) ? input : path.resolve(normalizedRoot, input);
   ensureWithinRoot(absolute, normalizedRoot);
   walkComponentsForSymlinks(normalizedRoot, absolute);

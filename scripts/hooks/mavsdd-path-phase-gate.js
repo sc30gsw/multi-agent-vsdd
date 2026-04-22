@@ -90,7 +90,7 @@ function gateSinglePath(inputPath, repoRoot) {
   }
   let canonical;
   try {
-    canonical = safeCanonical(inputPath, repoRoot);
+    canonical = safeCanonical(inputPath, repoRoot, { allowAbsolute: true });
   } catch (error) {
     if (error instanceof PathRejection) {
       return { allowed: false, reason: error.message, path: inputPath };
