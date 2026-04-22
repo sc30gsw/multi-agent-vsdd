@@ -33,9 +33,11 @@ Codex は契約 / quota 次第で利用できない user がいる。v1 は `/ma
 
 実装要件:
 
+- **plan-review と impl-review は完全に同じ backend trio をサポート**する。`runReview(scope)` の分岐で scope に応じて rubric（`templates/codex-rubric-plan.md` / `templates/codex-rubric-impl.md`）と artifact 集合（`PLAN_ARTIFACTS` / `IMPL_ARTIFACTS`）だけが切り替わり、backend 実装は共通
 - `claude` backend は `ensureClaudePreflight` + `ensureAgentTeamsPreflight` で `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` を検証する
 - Codex preflight 失敗時は **自動 fallback せず**、エラーメッセージに `--backend claude` / `--backend mock` を明示するリダイレクトを添えて fail（意図しない provider 切替を防ぐ）
 - `mock` は今後も skill の allow-list に残すが、`--backend claude` が第一選択
+- `agents/mavsdd-reviewer.md`（`model: opus`, `effort: xhigh`）が `claude` backend の実体。rubric-aware で `scope=plan` / `scope=impl` の両方を処理する（plan 軸 vs 3 軸コードレビュー）
 
 ### 0.4 Plan scaffold は minimal、ハードコード REQ を撤廃
 

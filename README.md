@@ -7,7 +7,7 @@ Claude Code の Agent Teams と（optional で）Codex CLI を組み合わせ、
 ## Features
 
 - **Plan scaffold** — goal から minimal な `plan.md` / `team-composition.json` / `specs/*.md` / `contexts/unit-*.md` を生成。feature 固有の要件は user が specs を編集して書き足す
-- **Plan review**（optional）— Codex gpt-5.4 / Agent Teams / 手動 review のいずれかで `.mavsdd/.../reviews/plan/` に verdict を積む
+- **Plan / Impl review** — `--backend codex`（default, Codex `gpt-5.4` adversarial） / `--backend claude`（Claude Opus 4.7 xhigh real reviewer） / `--backend mock`（意図的 skip）の 3 択で `.mavsdd/.../reviews/<scope>/` に verdict を積む
 - **Implement** — Sonnet implementer team が `workspace/repo/` 上で実装。`config/roles.json` の `allowedWritePaths` を超える書き込みは hook が fail-closed で拒否
 - **Apply** — `MAVSDD_APPLY_TOKEN` + `.apply-lock` で隔離した apply subprocess が `operations.json` の `baseHash` を再検証してから本体 repo に反映（idempotent）
 - **Verify / Fix** — `verify-command`（既定 `npm test`）を回し、失敗したら **single-agent fixer** が `workspace/repo/` を修正するループ
@@ -126,7 +126,7 @@ VS Code / GitHub / Obsidian 等の Markdown プレビューで、`Open` セク�
 | **`plan.md`** | feature の真実の源（goal / target / verify-command / 要件メモ） | 📌 plan 後に編集 |
 | **`specs/`** | 要件・検証設計の scaffold（`requirements-index.json` / `verification-architecture.md` / `test-strategy.md` 等） | 📌 plan 後に編集 |
 | **`operations/<unit>/operations.json`** | apply 候補の diff（`changedPaths` / `baseHash` / `newContent`） | 📌 apply 前に目視 |
-| **`reviews/<scope>/iteration-K/`** | Codex/manual review の `aggregate.json` と `reviewer-*/verdict.json` | 📌 RED/YELLOW のとき開く |
+| **`reviews/<scope>/iteration-K/`** | Codex / Claude Opus / mock いずれかの `aggregate.json` と `reviewer-*/verdict.json`（`meta.source` で backend 区別） | 📌 RED/YELLOW のとき開く |
 | **`verification/`** | `verify-command` の結果（`summary.json` / `reports/<unit>.md`） | 📌 fail のとき下りる |
 | **`fixes/orphan/<id>/`** | 修正 cluster の scope と resolution | 📌 fix_required のとき開く |
 | `feature-state.json` | 現在の phase / 承認状態 / review iteration 数 | CLI に任せる |
@@ -156,7 +156,7 @@ VS Code / GitHub / Obsidian 等の Markdown プレビューで、`Open` セク�
 
 - **apply が `baseHash mismatch` で落ちた** → `apply-log.jsonl` で直近の applyTxnId を確認 → `operations/<unit>/operations.json` で `baseHash` を再生成
 - **verify が RED** → `verification/reports/<unit>.md` で stdout/stderr を読む
-- **review が RED で理由が不明** → `reviews/<scope>/iteration-K/reviewer-*/verdict.raw.json` で生の Codex 応答を確認
+- **review が RED で理由が不明** → `reviews/<scope>/iteration-K/reviewer-*/raw-response.json` で reviewer の生 stdout/stderr を確認（Codex なら rate limit メッセージ、Claude なら Opus の thinking）
 - **何が動いているか分からない** → `tail -f run-metadata/events.jsonl` で全実行を stream
 - **implement / fix の出力が空** → `team-runtime/claude-*-raw-response.json` で stderr / exit code を確認
 - **承認チェーンを辿りたい** → `human-approvals.jsonl`（各エントリに manifestHash / aggregateHash / acceptRisk）
