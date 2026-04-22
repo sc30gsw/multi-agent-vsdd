@@ -2,13 +2,28 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "mavsdd-operations",
   "title": "mavsdd Operations Manifest",
-  "description": "operations.json per unit, enumerating every file change the unit intends to apply.",
+  "description": "operations.json per unit, enumerating every file change the unit intends to apply. Plan §15.1 canonical keys are `unit` and `ops`; legacy `unitId` / `operations` are accepted for backward compatibility.",
   "type": "object",
-  "required": ["feature", "unitId", "operations"],
+  "required": ["feature"],
   "properties": {
+    "schemaVersion": { "type": "string" },
     "feature": { "type": "string", "minLength": 1 },
+    "unit": { "type": "string", "minLength": 1 },
     "unitId": { "type": "string", "minLength": 1 },
+    "baselineId": { "type": ["string", "null"] },
     "generatedAt": { "type": "string" },
+    "changedPaths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "requirementCoverage": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "ops": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/operation" }
+    },
     "operations": {
       "type": "array",
       "items": { "$ref": "#/definitions/operation" }
@@ -34,8 +49,12 @@
         "contentHash": { "type": ["string", "null"] },
         "newHash": { "type": ["string", "null"] },
         "newContent": { "type": ["string", "null"] },
-        "mode": { "type": ["number", "null"] },
-        "baseMode": { "type": ["number", "null"] }
+        "mode": { "type": ["string", "number", "null"] },
+        "baseMode": { "type": ["string", "number", "null"] },
+        "requirementRefs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
       },
       "additionalProperties": true
     }

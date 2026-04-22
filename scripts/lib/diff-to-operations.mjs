@@ -14,6 +14,36 @@ function sha256Text(text) {
   return createHash("sha256").update(text).digest("hex");
 }
 
+// Plan §15.1: baseHash / contentHash are stored as `sha256:<hex>`.
+function prefixHash(hex) {
+  if (hex == null) return null;
+  if (typeof hex === "string" && hex.startsWith("sha256:")) return hex;
+  return `sha256:${hex}`;
+}
+
+// Plan §15.1: mode is recorded as a 3-digit octal string (e.g. "755").
+export function modeToOctalString(mode) {
+  if (mode == null) return null;
+  if (typeof mode === "string") return mode;
+  return (mode & 0o777).toString(8).padStart(3, "0");
+}
+
+export function parseHash(value) {
+  if (!value) return null;
+  if (typeof value !== "string") return null;
+  return value.startsWith("sha256:") ? value.slice("sha256:".length) : value;
+}
+
+export function parseMode(value) {
+  if (value == null) return null;
+  if (typeof value === "number") return value & 0o777;
+  if (typeof value === "string") {
+    const parsed = parseInt(value, 8);
+    return Number.isFinite(parsed) ? parsed & 0o777 : null;
+  }
+  return null;
+}
+
 export async function buildManifest(rootDir) {
   const manifest = {};
   await walk(rootDir, "", async (absolutePath, relativePath) => {
@@ -122,6 +152,8 @@ export async function materializeOperation(change, repoDir) {
     op: change.op,
     kind: coerceKindFromOp(change.op)
   };
+  const beforeHash = prefixHash(change.before?.sha256);
+  const afterHash = prefixHash(change.after?.sha256);
   if (change.op === OP_RENAME) {
     const newContent = await fs.readFile(path.join(repoDir, change.to), "utf8");
     return {
@@ -129,18 +161,18 @@ export async function materializeOperation(change, repoDir) {
       from: change.from,
       to: change.to,
       path: change.to,
-      baseHash: change.before?.sha256 ?? null,
-      contentHash: change.after?.sha256 ?? null,
-      newHash: change.after?.sha256 ?? null,
+      baseHash: beforeHash,
+      contentHash: afterHash,
+      newHash: afterHash,
       newContent,
-      mode: change.after?.mode ?? null
+      mode: modeToOctalString(change.after?.mode)
     };
   }
   if (change.op === OP_DELETE) {
     return {
       ...base,
       path: change.path,
-      baseHash: change.before?.sha256 ?? null,
+      baseHash: beforeHash,
       contentHash: null,
       newHash: null,
       newContent: null,
@@ -151,23 +183,23 @@ export async function materializeOperation(change, repoDir) {
     return {
       ...base,
       path: change.path,
-      baseHash: change.before?.sha256 ?? null,
-      contentHash: change.after?.sha256 ?? null,
-      newHash: change.after?.sha256 ?? null,
+      baseHash: beforeHash,
+      contentHash: afterHash,
+      newHash: afterHash,
       newContent: null,
-      mode: change.after?.mode ?? null,
-      baseMode: change.before?.mode ?? null
+      mode: modeToOctalString(change.after?.mode),
+      baseMode: modeToOctalString(change.before?.mode)
     };
   }
   const newContent = await fs.readFile(path.join(repoDir, change.path), "utf8");
   return {
     ...base,
     path: change.path,
-    baseHash: change.before?.sha256 ?? null,
-    contentHash: change.after?.sha256 ?? null,
-    newHash: change.after?.sha256 ?? null,
+    baseHash: beforeHash,
+    contentHash: afterHash,
+    newHash: afterHash,
     newContent,
-    mode: change.after?.mode ?? null
+    mode: modeToOctalString(change.after?.mode)
   };
 }
 

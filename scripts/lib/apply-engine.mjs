@@ -7,7 +7,9 @@ import {
   OP_OVERWRITE,
   OP_DELETE,
   OP_RENAME,
-  OP_CHMOD
+  OP_CHMOD,
+  parseHash,
+  parseMode
 } from "./diff-to-operations.mjs";
 
 function sha256Text(text) {
@@ -33,7 +35,8 @@ async function hashFile(absolutePath) {
 async function ensureHashMatches(targetRepo, relativePath, expectedHash) {
   const live = path.join(targetRepo, relativePath);
   const current = await hashFile(live);
-  if (current !== (expectedHash ?? null)) {
+  const expected = parseHash(expectedHash);
+  if (current !== (expected ?? null)) {
     throw new Error(
       `Base hash mismatch for ${relativePath}: expected ${expectedHash}, got ${current}`
     );
@@ -75,19 +78,21 @@ export async function applyOperation(targetRepo, operation) {
     } else if (await pathExists(liveFrom)) {
       await fs.rename(liveFrom, liveTo);
     }
-    if (operation.mode != null) {
-      await fs.chmod(liveTo, operation.mode);
+    const mode = parseMode(operation.mode);
+    if (mode != null) {
+      await fs.chmod(liveTo, mode);
     }
     return { op, from: operation.from, to: operation.to };
   }
 
   if (op === OP_CHMOD) {
     await ensureHashMatches(targetRepo, operation.path, operation.baseHash);
-    if (operation.mode == null) {
+    const mode = parseMode(operation.mode);
+    if (mode == null) {
       throw new Error(`chmod operation for ${operation.path} is missing mode`);
     }
-    await fs.chmod(path.join(targetRepo, operation.path), operation.mode);
-    return { op, path: operation.path, mode: operation.mode };
+    await fs.chmod(path.join(targetRepo, operation.path), mode);
+    return { op, path: operation.path, mode };
   }
 
   // add / overwrite
@@ -95,16 +100,25 @@ export async function applyOperation(targetRepo, operation) {
   const live = path.join(targetRepo, operation.path);
   await fs.mkdir(path.dirname(live), { recursive: true });
   await fs.writeFile(live, operation.newContent ?? "");
-  if (operation.mode != null) {
-    await fs.chmod(live, operation.mode);
+  const mode = parseMode(operation.mode);
+  if (mode != null) {
+    await fs.chmod(live, mode);
   }
   return { op, path: operation.path };
+}
+
+// Accept both plan-compliant `ops` and legacy `operations`; likewise for unit / unitId.
+function extractOps(manifest) {
+  if (!manifest) return [];
+  if (Array.isArray(manifest.ops)) return manifest.ops;
+  if (Array.isArray(manifest.operations)) return manifest.operations;
+  return [];
 }
 
 export async function applyManifestList(targetRepo, manifests) {
   const applied = [];
   for (const manifest of manifests) {
-    for (const operation of manifest.operations || []) {
+    for (const operation of extractOps(manifest)) {
       const result = await applyOperation(targetRepo, operation);
       applied.push(result);
     }

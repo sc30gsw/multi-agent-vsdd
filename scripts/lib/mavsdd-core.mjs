@@ -12,7 +12,9 @@ import {
   buildManifest as buildDiffManifest,
   diffToOperations,
   operationPaths,
-  validateOperationsAgainstBaseline
+  validateOperationsAgainstBaseline,
+  parseHash,
+  parseMode
 } from "./diff-to-operations.mjs";
 import { assertValid } from "./schema.mjs";
 import {
@@ -421,8 +423,9 @@ export async function ensureFeatureScaffold(repoRoot, feature) {
 }
 
 export async function createFeatureState(repoRoot, feature, options = {}) {
-  const targetRepo = options.target
-    ? path.resolve(repoRoot, options.target)
+  const targetArg = options.target || options["target-repo"] || options.targetRepo;
+  const targetRepo = targetArg
+    ? path.resolve(repoRoot, targetArg)
     : path.resolve(repoRoot, "sample/sample-app");
 
   const title = options.title || `Deliver ${feature}`;
@@ -998,7 +1001,8 @@ function buildRequirements(state) {
     {
       id: "REQ-6",
       title: "Export from index",
-      summary: "Export the new range helpers from src/index.js and cover the import in at least one test.",
+      summary:
+        "Export the new range helpers from src/index.js and prove the public entrypoint by importing and executing both helpers through src/index.js.",
       units: ["sample-logic", "sample-tests"]
     },
     {
@@ -1109,7 +1113,7 @@ function renderPlanMarkdown(state, requirements, team) {
     "",
     "## Unit Verification Gates",
     "",
-    "- `sample-logic`: proven by `operations/sample-logic/operations.json` plus a green shared `npm test` run after apply.",
+    "- `sample-logic`: proven by `operations/sample-logic/operations.json` with changed paths and `requirementCoverage` for REQ-1a/REQ-1b/REQ-1c/REQ-1d/REQ-1e/REQ-2/REQ-3/REQ-6, plus a green shared `npm test` run after apply. The manifest must show both `src/range.js` and `src/index.js` when REQ-2/REQ-3/REQ-6 are implemented.",
     "- `sample-tests`: proven by the shared `npm test` run and `verification/reports/sample-tests.md`.",
     "- `sample-audit`: proven by a completed `specs/reuse-evidence.md` linked to `operations/sample-logic/operations.json` and `verification/summary.json`.",
     ""
@@ -1164,14 +1168,14 @@ function renderVerificationArchitecture(state) {
     "- REQ-1e: `sumRange` and `describeRange` both reject descending ranges with exact `RangeError('start must be less than or equal to end')`.",
     "- REQ-2: `sumRange(start, end)` is asserted against inclusive sums.",
     "- REQ-3: `describeRange(start, end)` is asserted for object shape and aggregate values.",
-    "- REQ-4: `sumRange` representative inputs include a single-point range AND a zero-crossing or negative range (both cases asserted).",
+    "- REQ-4: `sumRange` representative inputs include `sumRange(7,7)===7` and `sumRange(-2,2)===0` as fixed required cases.",
     "- REQ-5: `describeRange` representative inputs include single-point, zero-crossing or negative values, AND a fractional average (all three asserted).",
-    "- REQ-6: `src/index.js` export surface is asserted by importing the public entrypoint and invoking each new helper at least once.",
+    "- REQ-6: `src/index.js` export surface is asserted by importing the public entrypoint and executing both helpers through that entrypoint.",
     "- REQ-7: `sample-audit` owns `specs/reuse-evidence.md`, reviews `operations/sample-logic/operations.json`, and impl-review is a hard gate until the audit checklist plus Reviewer/Reviewed at/Conclusion fields are completed.",
     "",
     "Unit-level success contracts:",
     "",
-    "- `sample-logic`: success requires `operations/sample-logic/operations.json` to exist and the shared `npm test` run in `verification/summary.json` to pass.",
+    "- `sample-logic`: success requires `operations/sample-logic/operations.json` to record changed paths plus `requirementCoverage` for REQ-1a/REQ-1b/REQ-1c/REQ-1d/REQ-1e/REQ-2/REQ-3/REQ-6, including both `src/range.js` and `src/index.js`, and the shared `npm test` run in `verification/summary.json` to pass.",
     "- `sample-tests`: success requires the shared `npm test` run to pass and `verification/reports/sample-tests.md` to be present.",
     "- `sample-audit`: success requires `specs/reuse-evidence.md` to contain a completed checklist plus Reviewer/Reviewed at/Conclusion fields, and that document must cite `operations/sample-logic/operations.json` and `verification/summary.json`."
   ].join("\n");
@@ -1191,8 +1195,11 @@ function renderReuseEvidenceTemplate(state) {
     "## Checklist",
     "",
     "- [ ] `sumRange(start, end)` delegates to `listRange` + `sum` (no duplicated loop over `start..end`).",
+    "  Evidence refs: ",
     "- [ ] `describeRange(start, end)` delegates to `normalizeRange`, `listRange`, and `sum` for the aggregate (no re-computing the range walk).",
+    "  Evidence refs: ",
     "- [ ] No new helpers re-implement `normalizeRange`'s validation logic locally.",
+    "  Evidence refs: ",
     "",
     "## Evidence (to be filled in during impl-review)",
     "",
@@ -1222,10 +1229,15 @@ function renderTestStrategy() {
     "- REQ-3: `describeRange(2, 4)` matches `{start:2,end:4,count:3,values:[2,3,4],sum:9,average:3}`.",
     "- REQ-4a: `sumRange(7, 7) === 7` (single-point).",
     "- REQ-4b: `sumRange(-2, 2) === 0` (zero-crossing / negative).",
-    "- REQ-5a: `describeRange(5, 5)` single-point shape.",
-    "- REQ-5b: `describeRange(-2, 2)` zero-crossing shape.",
+    "- REQ-5a: `describeRange(5, 5)` exactly matches `{start:5,end:5,count:1,values:[5],sum:5,average:5}`.",
+    "- REQ-5b: `describeRange(-2, 2)` exactly matches `{start:-2,end:2,count:5,values:[-2,-1,0,1,2],sum:0,average:0}`.",
     "- REQ-5c: `describeRange(0, 1).average === 0.5` (fractional average).",
-    "- REQ-6: importing from `src/index.js` returns the full exported surface including `sumRange` and `describeRange`.",
+    "- REQ-6a: importing from `src/index.js` returns callable `sumRange` and `describeRange`.",
+    "- REQ-6b: `sumRange(1, 4)` executed through `src/index.js` returns `10`.",
+    "- REQ-6c: `describeRange(2, 4)` executed through `src/index.js` returns the expected aggregate object.",
+    "",
+    "Non-test review gates:",
+    "",
     "- REQ-7: impl-review must fail closed until `sample-audit` records a completed static reuse audit in `specs/reuse-evidence.md` using `operations/sample-logic/operations.json` and `verification/summary.json`."
   ].join("\n");
 }
@@ -1398,7 +1410,17 @@ async function refreshReuseEvidence(repoRoot, feature) {
       "",
       "## Checklist",
       "",
-      ...checklist.map((item) => `- [${item.ok ? "x" : " "}] ${item.label}`),
+      ...checklist.flatMap((item, index) => {
+        const evidenceRef = index === 0
+          ? "`operations/sample-logic/operations.json#src/range.js:sumRange`"
+          : index === 1
+            ? "`operations/sample-logic/operations.json#src/range.js:describeRange`"
+            : "`operations/sample-logic/operations.json#src/range.js:validation-path`";
+        return [
+          `- [${item.ok ? "x" : " "}] ${item.label}`,
+          `  Evidence refs: ${evidenceRef}`
+        ];
+      }),
       "",
       "## Evidence (filled by trusted CLI during impl-review preparation)",
       "",
@@ -1592,6 +1614,11 @@ export async function runClaudeImplementation(repoRoot, feature) {
       description: "Adds node:test coverage for the new range helpers.",
       prompt:
         "Focus on node:test coverage in tests/. Ensure edge cases are covered and the full suite passes."
+    },
+    "sample-audit": {
+      description: "Writes the static reuse audit in specs/reuse-evidence.md after reviewing staged evidence.",
+      prompt:
+        "Focus on specs/reuse-evidence.md. Record concrete evidence references for helper reuse and complete the audit fields."
     }
   };
   const schemaPath = path.join(root, "team-runtime/claude-implement-schema.json");
@@ -1599,7 +1626,7 @@ export async function runClaudeImplementation(repoRoot, feature) {
   const rawPath = path.join(root, "team-runtime/claude-implement-raw-response.json");
   const prompt = [
     "You are implementing a feature in a sample Node.js repository.",
-    "Use the available agent capability to delegate work to both `sample-logic` and `sample-tests` before you finish.",
+    "Use the available agent capability to delegate work to `sample-logic`, `sample-tests`, and `sample-audit` before you finish.",
     "Repository constraints:",
     "- Modify only files under the current working directory.",
     "- Do not touch files outside the repo.",
@@ -1612,6 +1639,7 @@ export async function runClaudeImplementation(repoRoot, feature) {
     "- Add `describeRange(start, end)` to src/range.js.",
     "- Export both functions from src/index.js.",
     "- Extend tests/range.test.js to cover the new behavior.",
+    "- Update specs/reuse-evidence.md with concrete evidence refs after reviewing the resulting code changes.",
     "",
     "Return JSON matching the schema."
   ].join("\n");
@@ -1782,6 +1810,22 @@ function extractClaudeJson(stdout) {
   return JSON.stringify(parsed.result);
 }
 
+function inferRequirementRefsForPath(relativePath) {
+  if (relativePath === "src/range.js") {
+    return ["REQ-1a", "REQ-1b", "REQ-1c", "REQ-1d", "REQ-1e", "REQ-2", "REQ-3"];
+  }
+  if (relativePath === "src/index.js") {
+    return ["REQ-6"];
+  }
+  if (relativePath === "tests/range.test.js") {
+    return ["REQ-1a", "REQ-1b", "REQ-1c", "REQ-1d", "REQ-1e", "REQ-4", "REQ-5", "REQ-6"];
+  }
+  if (relativePath === "specs/reuse-evidence.md") {
+    return ["REQ-7"];
+  }
+  return [];
+}
+
 export async function stageOperations(repoRoot, feature) {
   const state = await loadState(repoRoot, feature);
   ensureCommandEntryPhase(state, "stage");
@@ -1820,6 +1864,10 @@ export async function stageOperations(repoRoot, feature) {
       );
     }
     const unitId = [...ownerSet][0];
+    const requirementRefs = Array.from(
+      new Set(ownersByPath.flatMap(({ relativePath }) => inferRequirementRefsForPath(relativePath)))
+    );
+    operation.requirementRefs = requirementRefs;
     if (operation.baseHash === null && baselineManifest.files?.[operation.path]?.sha256) {
       operation.baseHash = baselineManifest.files[operation.path].sha256;
     }
@@ -1832,10 +1880,25 @@ export async function stageOperations(repoRoot, feature) {
     validateOperationsAgainstBaseline(operations, baselineManifest.files || {});
     await ensureDir(path.join(root, "operations", unitId));
     const manifest = {
+      schemaVersion: "1.0",
       feature,
+      unit: unitId,
       unitId,
       baselineId: baselineManifest.baselineId ?? null,
       generatedAt: nowIso(),
+      changedPaths: Array.from(
+        new Set(
+          operations.flatMap((operation) =>
+            operationPaths(operation)
+          )
+        )
+      ).sort(),
+      requirementCoverage: Array.from(
+        new Set(
+          operations.flatMap((operation) => operation.requirementRefs || [])
+        )
+      ).sort(),
+      ops: operations,
       operations
     };
     await assertValid("mavsdd-operations", manifest, `operations/${unitId}`);
@@ -1875,8 +1938,15 @@ export async function applyOperations(repoRoot, feature, options = {}) {
   const manifestsByUnit = [];
   const perUnitBaselineIds = new Set();
   for (const unit of unitDirs) {
-    const manifest = await readJson(path.join(operationsDir, unit, "operations.json"), { operations: [] });
-    manifestsByUnit.push({ unit, manifest });
+    const manifest = await readJson(path.join(operationsDir, unit, "operations.json"), {});
+    // Plan §15.1: prefer `ops`, fall back to legacy `operations`.
+    const ops = Array.isArray(manifest.ops)
+      ? manifest.ops
+      : Array.isArray(manifest.operations)
+        ? manifest.operations
+        : [];
+    const unitName = manifest.unit || manifest.unitId || unit;
+    manifestsByUnit.push({ unit: unitName, manifest, ops });
     if (manifest.baselineId) perUnitBaselineIds.add(manifest.baselineId);
   }
   if (perUnitBaselineIds.size > 1) {
@@ -1886,8 +1956,8 @@ export async function applyOperations(repoRoot, feature, options = {}) {
   }
   const baselineId = [...perUnitBaselineIds][0] ?? null;
   const opDigestSource = manifestsByUnit
-    .flatMap(({ unit, manifest }) =>
-      (manifest.operations || []).map((operation) =>
+    .flatMap(({ unit, ops }) =>
+      ops.map((operation) =>
         JSON.stringify({
           unit,
           op: operation.op ?? operation.kind,
@@ -1955,8 +2025,8 @@ export async function applyOperations(repoRoot, feature, options = {}) {
   try {
     let appliedCount = 0;
 
-    for (const { unit, manifest } of manifestsByUnit) {
-      for (const operation of manifest.operations) {
+    for (const { ops } of manifestsByUnit) {
+      for (const operation of ops) {
         const op = operation.op
           ?? (operation.kind === "modify"
             ? OP_OVERWRITE
@@ -3211,7 +3281,8 @@ async function applySingleOperation(state, op, operation) {
       ? await fs.readFile(livePath, "utf8")
       : null;
     const currentHash = currentContent === null ? null : sha256Text(currentContent);
-    if (currentHash !== (expectedHash ?? null)) {
+    const expected = parseHash(expectedHash);
+    if (currentHash !== (expected ?? null)) {
       throw new Error(
         `Base hash mismatch for ${relativePath}: expected ${expectedHash}, got ${currentHash}`
       );
@@ -3242,18 +3313,20 @@ async function applySingleOperation(state, op, operation) {
         await fs.rename(liveFrom, liveTo);
       }
     }
-    if (operation.mode != null) {
-      await fs.chmod(liveTo, operation.mode);
+    const mode = parseMode(operation.mode);
+    if (mode != null) {
+      await fs.chmod(liveTo, mode);
     }
     return 1;
   }
 
   if (op === OP_CHMOD) {
     await ensureHashMatches(operation.path, operation.baseHash);
-    if (operation.mode == null) {
+    const mode = parseMode(operation.mode);
+    if (mode == null) {
       throw new Error(`chmod operation for ${operation.path} is missing mode`);
     }
-    await fs.chmod(resolveLive(operation.path), operation.mode);
+    await fs.chmod(resolveLive(operation.path), mode);
     return 1;
   }
 
@@ -3262,8 +3335,9 @@ async function applySingleOperation(state, op, operation) {
   const livePath = resolveLive(operation.path);
   await ensureDir(path.dirname(livePath));
   await fs.writeFile(livePath, operation.newContent ?? "");
-  if (operation.mode != null) {
-    await fs.chmod(livePath, operation.mode);
+  const mode = parseMode(operation.mode);
+  if (mode != null) {
+    await fs.chmod(livePath, mode);
   }
   return 1;
 }

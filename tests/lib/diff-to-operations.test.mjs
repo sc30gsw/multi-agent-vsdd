@@ -122,8 +122,9 @@ test("diffToOperations materializes add / overwrite / delete / rename / chmod", 
 
     const chmodOperation = byKind[`${OP_CHMOD}:src/exec.js`];
     assert.ok(chmodOperation, "chmod missing");
-    assert.equal(chmodOperation.mode, 0o755);
-    assert.equal(chmodOperation.baseMode, 0o644);
+    // Plan §15.1: mode is recorded as an octal string.
+    assert.equal(chmodOperation.mode, "755");
+    assert.equal(chmodOperation.baseMode, "644");
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
