@@ -1955,7 +1955,7 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
   const iteration = (state.reviewIterations[scope] || 0) + 1;
   const iterationDir = path.join(root, "reviews", scope, `iteration-${iteration}`);
   const reviewers = Number(options.reviewers || 1);
-  const reviewTimeoutMs = Number(options["timeout-ms"] || process.env.MAVSDD_REVIEW_TIMEOUT_MS || 60_000);
+  const reviewTimeoutMs = Number(options["timeout-ms"] || process.env.MAVSDD_REVIEW_TIMEOUT_MS || 10 * 60_000);
   const artifacts = scope === "plan"
     ? [
         ...PLAN_ARTIFACTS,
