@@ -89,6 +89,32 @@ skill は CLI 出力をそのまま user に見せる（`disable-model-invocatio
 
 `README.md` の "Which `.mavsdd/*` files should humans inspect?" セクションは phase ↔ 確認対象ファイルの公式対応表であり、`nextSteps.inspect[]` と常に一致させる。実装を変更する際は本 plan §0 と README のテーブル両方を更新する。
 
+#### 0.8.3 `.mavsdd/features/<feature>/INDEX.md` 自動再生成契約
+
+operator が `.mavsdd/` 配下のどの json / md を開けばよいか毎回頭で解決しなくて済むよう、state-mutating な全 CLI 実行（`saveState()` / `appendRunMetadata()` の呼び出し口）ごとに **`.mavsdd/features/<feature>/INDEX.md` を自動で全書き替え**する。
+
+**ファイルの中身（必須セクション、この順序で）**:
+
+1. `# <feature>  <phase-emoji> \`<phase>\`` — H1 に現 phase
+2. `## Progress` — phase の順序チェックリスト（`[x]` / `[ ] ← 現在` / `[ ]`）
+3. `## 👉 Next` — 次に何をするかを 1 文 + 次の CLI コマンド（`nextSteps.nextCommand` と同じ文字列）
+4. `**Open**:` — 現 phase で開くべき `.mavsdd/features/<feature>/` 配下ファイルの **Markdown リンク（相対パス）付き箇条書き**。`nextSteps.inspect[]` と 1:1
+5. `## Feature` — `goal` / `target` / `verify-command` の 3 行要約（`feature-state.json` から引く）
+6. `## Recent events (last 5)` — `run-metadata/events.jsonl` の末尾 5 行を `- YYYY-MM-DDTHH:MM:SSZ \`<event>\` <summary>` 形式で
+
+**契約**:
+
+- INDEX.md は **`nextSteps.inspect[]` と必ず同じファイル集合**を `Open` に並べる（`nextSteps` と UI が乖離しないことが operator の信頼点）
+- `phase-emoji` は `initialized=⚪` / `planned=🟡` / `plan_reviewed=🟡` / `plan_approved=🟢` / `red=🔴` / `implementing=🟣` / `staged=🟠` / `applied=🟣` / `verified=🟢` / `impl_reviewed=🟡` / `impl_approved=🟢` / `fix_required=🟠` / `done=✅` / `blocked=🚫` を既定とし、実装は `scripts/lib/mavsdd-core.mjs` の `PHASE_PROGRESS` に集約する
+- operator が手動で編集しても **次の CLI 実行で無条件に上書き**される。INDEX.md は生成物、真実の源は `feature-state.json` + `run-metadata/events.jsonl`
+- INDEX.md の破損（書き出し失敗）は CLI の非致命エラーとして `events.jsonl` に `"event":"index_write_failed"` を append する（CLI 自体は成功扱い）
+- `phase === "done"` のときは `## 👉 Next` を `Feature complete. No further action.` に固定し `Open` は空リスト
+
+**README との関係**:
+
+- README には phase → 開くファイルの公式対応表を記載するが、**operator が暗記する必要は無い** — INDEX.md が毎回差し替えて教える
+- README には **"一番先に開くのは `.mavsdd/features/<feature>/INDEX.md`"** と明示する
+
 ### 0.9 Claude-only 運用経路（Codex 非依存）
 
 `/mavsdd-plan-review` / `/mavsdd-impl-review` **以外**は Codex を必要としない。Codex が未導入 / quota 切れのとき、operator は次の手順で review を "mock" できる。

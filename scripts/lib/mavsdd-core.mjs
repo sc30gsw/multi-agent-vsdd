@@ -679,11 +679,32 @@ const PHASE_PROGRESS = [
 ];
 
 function phaseEmoji(phase) {
-  if (phase === "done") return "🟢";
-  if (phase === "blocked") return "🔴";
-  if (phase === "fix_required") return "🟡";
-  if (phase === "initialized") return "⚪";
-  return "🟢";
+  // plan §0.8.3 phase-emoji contract. Kept as a flat map so adding a state
+  // machine entry forces us to pick an emoji explicitly.
+  const map = {
+    initialized: "⚪",
+    planned: "🟡",
+    plan_review_pending: "🟡",
+    plan_reviewed: "🟡",
+    plan_approved: "🟢",
+    red: "🔴",
+    implementing: "🟣",
+    implemented: "🟣",
+    ready_to_stage: "🟠",
+    staged: "🟠",
+    impl_applying: "🟣",
+    applied: "🟣",
+    verifying: "🟢",
+    verified: "🟢",
+    impl_review_pending: "🟡",
+    impl_reviewed: "🟡",
+    impl_review_inconclusive: "🟡",
+    impl_approved: "🟢",
+    fix_required: "🟠",
+    done: "✅",
+    blocked: "🚫"
+  };
+  return map[phase] || "🟢";
 }
 
 function renderNextForIndex(feature, state, iter) {

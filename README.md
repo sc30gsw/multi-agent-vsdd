@@ -47,6 +47,23 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 /mavsdd-status
 ```
 
+## Quickstart（60 秒で流れを把握）
+
+1. **init**: feature を作る
+   ```bash
+   node scripts/cli/mavsdd.mjs init --feature demo --target sample/range-workbench-app --verify-command "npm test"
+   ```
+2. **最初に開くのは `.mavsdd/features/demo/INDEX.md`**（自動生成）
+   - 現 phase / 進捗チェックリスト / 次に開くファイル / 次のコマンド / 直近 5 イベント が 1 ファイルに入っている
+   - **どのファイルを読めばよいか分からなくても INDEX.md を開けば分かる**
+3. あとは INDEX.md の `## 👉 Next` に従うだけ:
+   - `## 👉 Next` の **Open** に並ぶファイルを順に目視（リンク付き）
+   - **Then run** に書いてある次の CLI を実行
+   - state が変わったら INDEX.md が勝手に書き換わる
+4. `phase: done` になるまでループする
+
+手を動かす full walkthrough は [`docs/DEMO.md`](./docs/DEMO.md) を参照（`sample/range-workbench-app/` で IPv4 CIDR Workbench API を VSDD loop 一周で仕上げるデモ）。
+
 ## Workflow（v1）
 
 ```
