@@ -56,6 +56,56 @@ rev-10 までの `buildRequirements()` は `REQ-1a..REQ-7` を feature 内容に
   - §20 fixer cluster（v1 は single agent 実行、cluster は 1 本に collapse してよい）
   - §10.2 plan 生成（v1 は goal 由来 1-REQ scaffold）
 
+### 0.8 Operator UX 契約（v1 で新規追加）
+
+ユーザーが「次に何をして、どのファイルを読めばよいか」を毎回自分で判断しなくて済むよう、v1 は次の 2 つの contract を保証する。
+
+#### 0.8.1 CLI は常に `nextSteps` を返す
+
+`scripts/cli/mavsdd.mjs <command>` の state-mutating 呼び出し（`init` / `plan` / `plan-review` / `aggregate` / `approve-*` / `red` / `implement` / `stage` / `apply` / `verify` / `impl-review` / `fix` / `status` / `resume`）は結果 JSON に次の形で `nextSteps` を必ず添えて返す。
+
+```json
+{
+  "...result payload...": "...",
+  "nextSteps": {
+    "phase": "staged",
+    "inspect": [
+      ".mavsdd/features/<feature>/operations/*/operations.json"
+    ],
+    "nextCommand": "node scripts/cli/mavsdd.mjs apply --feature <feature>",
+    "note": null
+  }
+}
+```
+
+- `phase`: 現 phase（`feature-state.json.phase` と一致）
+- `inspect[]`: 現 phase で人間が読んで判断すべき `.mavsdd/features/<feature>/` 配下のファイル。glob 表記可
+- `nextCommand`: 次に実行する canonical CLI 1 行
+- `note`: 条件付き警告（`aggregate.impl=RED` の直後など）。通常は null
+
+skill は CLI 出力をそのまま user に見せる（`disable-model-invocation: true`）ので、`/mavsdd-*` を実行するたびに **"次のコマンド" と "読むべきファイル"** が session に表示される。
+
+#### 0.8.2 README は operator のファイル閲覧 index を兼ねる
+
+`README.md` の "Which `.mavsdd/*` files should humans inspect?" セクションは phase ↔ 確認対象ファイルの公式対応表であり、`nextSteps.inspect[]` と常に一致させる。実装を変更する際は本 plan §0 と README のテーブル両方を更新する。
+
+### 0.9 Claude-only 運用経路（Codex 非依存）
+
+`/mavsdd-plan-review` / `/mavsdd-impl-review` **以外**は Codex を必要としない。Codex が未導入 / quota 切れのとき、operator は次の手順で review を "mock" できる。
+
+```bash
+mkdir -p .mavsdd/features/<f>/reviews/<scope>/iteration-<K>/reviewer-<R>
+cat > .mavsdd/features/<f>/reviews/<scope>/iteration-<K>/manifest.json <<EOF
+{"feature":"<f>","scope":"<scope>","iteration":<K>,"reviewers":["<R>"],"artifactsToReview":[]}
+EOF
+cat > .mavsdd/features/<f>/reviews/<scope>/iteration-<K>/reviewer-<R>/verdict.json <<EOF
+{"verdict":"GREEN","coverageComplete":true,"findings":[]}
+EOF
+# reviewIterations を更新して aggregate へ
+```
+
+この経路でも `aggregate → approve-* → done` までは通常通り通る。v1.1 で `--backend agent-team` が入れば手動 mock は不要になる。
+
 ## 1. 目的
 
 本 OSS は、Anthropic の harness engineering 文脈で使える、マルチエージェント型の VSDD 実行基盤を新規リポジトリとして構築する。
