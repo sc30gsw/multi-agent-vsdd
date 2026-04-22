@@ -1955,8 +1955,14 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
   const iteration = (state.reviewIterations[scope] || 0) + 1;
   const iterationDir = path.join(root, "reviews", scope, `iteration-${iteration}`);
   const reviewers = Number(options.reviewers || 1);
+  const reviewTimeoutMs = Number(options["timeout-ms"] || process.env.MAVSDD_REVIEW_TIMEOUT_MS || 60_000);
   const artifacts = scope === "plan"
-    ? PLAN_ARTIFACTS
+    ? [
+        ...PLAN_ARTIFACTS,
+        ...teamComposition.units
+          .map((unit) => unit.briefPath)
+          .filter((p) => typeof p === "string" && p.length > 0)
+      ]
     : IMPL_ARTIFACTS.flatMap((item) => {
         if (item === "operations") {
           return gatherOperationArtifacts(root, teamComposition.units);
@@ -2088,7 +2094,8 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
       ],
       {
         cwd: repoRoot,
-        input: prompt
+        input: prompt,
+        timeoutMs: reviewTimeoutMs
       }
     );
 
@@ -2096,7 +2103,8 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
       status: result.status,
       stdout: result.stdout,
       stderr: result.stderr,
-      promptPayloadHash
+      promptPayloadHash,
+      timedOut: result.timedOut
     });
 
     let verdict = null;
@@ -2136,7 +2144,8 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
         ...updatedJobs[updatedJobIndex],
         status: result.status === 0 ? "completed" : "failed",
         completedAt: nowIso(),
-        error: result.status === 0 ? null : result.stderr || result.stdout || "Codex execution failed"
+        error: result.status === 0 ? null : result.stderr || result.stdout || "Codex execution failed",
+        timedOut: result.status === 0 ? false : result.timedOut
       };
       await updateReviewerJobs(repoRoot, feature, updatedJobs);
     }
@@ -2157,7 +2166,8 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
       feature,
       scope,
       iteration,
-      reviewers
+      reviewers,
+      reviewTimeoutMs
     }
   });
 
