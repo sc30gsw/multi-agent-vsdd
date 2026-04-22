@@ -14,7 +14,9 @@ import {
   buildRawChanges,
   classifyChange,
   collapseRenames,
-  diffToOperations
+  diffToOperations,
+  validateOperationAgainstBaseline,
+  validateOperationsAgainstBaseline
 } from "../../scripts/lib/diff-to-operations.mjs";
 
 async function makeTempDir() {
@@ -151,6 +153,56 @@ test("diffToOperations without rename detection leaves deletes and adds intact",
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test("validateOperationAgainstBaseline flags add-on-existing and delete-missing", () => {
+  const baseline = { "src/existing.js": { sha256: "h" } };
+  assert.throws(
+    () => validateOperationAgainstBaseline({ op: OP_ADD, path: "src/existing.js" }, baseline),
+    /already exists in baseline/
+  );
+  assert.throws(
+    () => validateOperationAgainstBaseline({ op: OP_DELETE, path: "src/ghost.js" }, baseline),
+    /missing from baseline/
+  );
+  assert.throws(
+    () => validateOperationAgainstBaseline({ op: OP_OVERWRITE, path: "src/ghost.js" }, baseline),
+    /missing from baseline/
+  );
+  validateOperationAgainstBaseline({ op: OP_ADD, path: "src/new.js" }, baseline);
+});
+
+test("validateOperationAgainstBaseline enforces rename source + destination invariants", () => {
+  const baseline = { "src/old.js": { sha256: "h" }, "src/keep.js": { sha256: "k" } };
+  assert.throws(
+    () =>
+      validateOperationAgainstBaseline(
+        { op: OP_RENAME, from: "src/ghost.js", to: "src/new.js" },
+        baseline
+      ),
+    /rename.*source/
+  );
+  assert.throws(
+    () =>
+      validateOperationAgainstBaseline(
+        { op: OP_RENAME, from: "src/old.js", to: "src/keep.js" },
+        baseline
+      ),
+    /rename.*destination/
+  );
+  validateOperationAgainstBaseline(
+    { op: OP_RENAME, from: "src/old.js", to: "src/new.js" },
+    baseline
+  );
+});
+
+test("validateOperationsAgainstBaseline validates a whole list", () => {
+  const baseline = { "a.js": { sha256: "h" } };
+  validateOperationsAgainstBaseline([{ op: OP_ADD, path: "b.js" }], baseline);
+  assert.throws(
+    () => validateOperationsAgainstBaseline([{ op: OP_DELETE, path: "z.js" }], baseline),
+    /missing from baseline/
+  );
 });
 
 test("buildManifest skips symbolic links", async () => {

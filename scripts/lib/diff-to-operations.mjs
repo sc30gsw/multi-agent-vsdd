@@ -199,3 +199,41 @@ export function operationPaths(operation) {
   }
   return [operation.path];
 }
+
+export function validateOperationAgainstBaseline(operation, baselineFiles) {
+  const has = (path) => Boolean(baselineFiles && baselineFiles[path]);
+  const op = operation.op
+    ?? (operation.kind === "modify"
+      ? OP_OVERWRITE
+      : operation.kind === "add"
+        ? OP_ADD
+        : operation.kind === "delete"
+          ? OP_DELETE
+          : operation.kind);
+  if (op === OP_ADD && has(operation.path)) {
+    throw new Error(`operation "add" targets a path that already exists in baseline: ${operation.path}`);
+  }
+  if (op === OP_DELETE && !has(operation.path)) {
+    throw new Error(`operation "delete" targets a path missing from baseline: ${operation.path}`);
+  }
+  if (op === OP_OVERWRITE && !has(operation.path)) {
+    throw new Error(`operation "overwrite" targets a path missing from baseline: ${operation.path}`);
+  }
+  if (op === OP_RENAME && !has(operation.from)) {
+    throw new Error(`operation "rename" source is missing from baseline: ${operation.from}`);
+  }
+  if (op === OP_RENAME && has(operation.to) && operation.from !== operation.to) {
+    throw new Error(`operation "rename" destination already exists in baseline: ${operation.to}`);
+  }
+  if (op === OP_CHMOD && !has(operation.path)) {
+    throw new Error(`operation "chmod" targets a path missing from baseline: ${operation.path}`);
+  }
+  return true;
+}
+
+export function validateOperationsAgainstBaseline(operations, baselineFiles) {
+  for (const operation of operations) {
+    validateOperationAgainstBaseline(operation, baselineFiles);
+  }
+  return true;
+}

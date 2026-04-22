@@ -11,7 +11,8 @@ import {
   OP_CHMOD,
   buildManifest as buildDiffManifest,
   diffToOperations,
-  operationPaths
+  operationPaths,
+  validateOperationsAgainstBaseline
 } from "./diff-to-operations.mjs";
 import { assertValid } from "./schema.mjs";
 import {
@@ -1569,6 +1570,7 @@ export async function stageOperations(repoRoot, feature) {
   }
 
   for (const [unitId, operations] of operationsByUnit.entries()) {
+    validateOperationsAgainstBaseline(operations, baselineManifest.files || {});
     await ensureDir(path.join(root, "operations", unitId));
     const manifest = {
       feature,
