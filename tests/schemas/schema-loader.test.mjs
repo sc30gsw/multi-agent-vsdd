@@ -49,9 +49,11 @@ test("operations schema validates add / overwrite / delete / rename / chmod", as
   const manifest = {
     feature: "f",
     unitId: "u1",
+    changedPaths: ["src/a.js", "src/b.js"],
+    requirementCoverage: ["REQ-2", "REQ-6"],
     operations: [
-      { op: "add", path: "src/a.js", contentHash: "h" },
-      { op: "overwrite", path: "src/b.js", baseHash: "b", contentHash: "h" },
+      { op: "add", path: "src/a.js", contentHash: "h", requirementRefs: ["REQ-2"] },
+      { op: "overwrite", path: "src/b.js", baseHash: "b", contentHash: "h", requirementRefs: ["REQ-6"] },
       { op: "delete", path: "src/c.js", baseHash: "b" },
       { op: "rename", from: "src/d.js", to: "src/e.js", baseHash: "b" },
       { op: "chmod", path: "src/f.js", baseHash: "b", mode: 493 }
@@ -89,4 +91,62 @@ test("finding schema rejects findings without an id or severity", async () => {
     title: "missing dep"
   });
   assert.equal(ok.valid, true, JSON.stringify(ok.errors));
+});
+
+test("finding schema accepts plan §17.1.1 rich fields (findingId / routeTo / description / suggestion)", async () => {
+  const result = await validate("mavsdd-finding", {
+    findingId: "f-42",
+    severity: "medium",
+    blocking: false,
+    category: "test_coverage",
+    routeTo: "tester",
+    title: "Missing fractional-average assertion",
+    description: "describeRange(0,1) is not asserted for average=0.5.",
+    suggestion: "Add an explicit test case.",
+    filePath: "tests/range.test.js",
+    lineRange: [40, 55]
+  });
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+});
+
+test("verdict schema accepts a richly-populated report (plan §17.1.1)", async () => {
+  const result = await validate("mavsdd-verdict", {
+    schemaVersion: "1.0",
+    reviewerId: "reviewer-1",
+    scope: "plan",
+    iteration: 1,
+    snapshotId: "plan-iteration-1",
+    model: "gpt-5.4",
+    resolvedModel: "gpt-5.4",
+    provider: "openai-responses",
+    effort: "high",
+    promptPayloadHash: "sha256:abcd",
+    summary: "Plan needs tighter validation split.",
+    verdict: "YELLOW",
+    coverageComplete: true,
+    touched_files: ["plan.md"],
+    evaluation: {
+      architecture: 0.9,
+      testability: 0.7,
+      operability: 0.8,
+      evidencePaths: ["/abs/plan.md"]
+    },
+    judgement: { label: "YELLOW", reason: "Non-blocking gaps." },
+    recommendedAction: "revise_then_re-review",
+    confidence: "high",
+    readSetProducer: "trusted-cli-preload",
+    readSetRef: ".mavsdd/.../read-set.jsonl",
+    artifactDigestsRef: ".mavsdd/.../artifact-digests.json",
+    findings: [
+      {
+        findingId: "f-1",
+        severity: "medium",
+        routeTo: "planner",
+        title: "spec gap",
+        description: "REQ-1 too broad",
+        suggestion: "split into sub-requirements"
+      }
+    ]
+  });
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
 });

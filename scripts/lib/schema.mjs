@@ -187,6 +187,26 @@ function validateNode(schema, data, pathPrefix, context) {
       }
     }
   }
+
+  if (Array.isArray(schema.anyOf)) {
+    const anyOfErrors = [];
+    const matched = schema.anyOf.some((branch) => {
+      const branchContext = { rootSchema: context.rootSchema, errors: [] };
+      validateNode(branch, data, pathPrefix, branchContext);
+      if (branchContext.errors.length === 0) return true;
+      anyOfErrors.push(branchContext.errors);
+      return false;
+    });
+    if (!matched) {
+      addError(
+        context.errors,
+        pathPrefix || "(root)",
+        `did not match any anyOf branch (first branch errors: ${
+          anyOfErrors[0]?.map((entry) => entry.message).join(", ")
+        })`
+      );
+    }
+  }
 }
 
 function deepEqual(a, b) {

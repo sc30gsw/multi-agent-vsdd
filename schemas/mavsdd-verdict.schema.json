@@ -2,13 +2,20 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "mavsdd-verdict",
   "title": "mavsdd Reviewer Verdict",
-  "description": "A single reviewer's verdict file written during plan or impl review.",
+  "description": "A single reviewer's verdict file written during plan or impl review. Plan §17.1.1 canonical shape: all rich fields below are optional so real Codex outputs (which omit most of them) still validate; verdict / findings are the only hard requirement.",
   "type": "object",
   "required": ["verdict", "findings"],
   "properties": {
+    "schemaVersion": { "type": "string" },
     "reviewerId": { "type": "string" },
     "scope": { "type": "string", "enum": ["plan", "impl"] },
     "iteration": { "type": "number", "minimum": 1 },
+    "snapshotId": { "type": "string" },
+    "model": { "type": "string" },
+    "resolvedModel": { "type": "string" },
+    "provider": { "type": "string" },
+    "effort": { "type": "string" },
+    "promptPayloadHash": { "type": "string" },
     "summary": { "type": "string" },
     "verdict": {
       "type": "string",
@@ -23,6 +30,48 @@
       "type": "array",
       "items": { "type": "object" }
     },
+    "evaluation": {
+      "type": "object",
+      "properties": {
+        "architecture": { "type": ["number", "string", "null"] },
+        "testability": { "type": ["number", "string", "null"] },
+        "operability": { "type": ["number", "string", "null"] },
+        "evidencePaths": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "judgement": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": ["GREEN", "YELLOW", "RED", "PENDING", "INCONCLUSIVE"]
+        },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "recommendedAction": {
+      "type": "string",
+      "enum": [
+        "accept",
+        "accept_with_followup",
+        "revise_then_re-review",
+        "block",
+        "escalate",
+        "needs_more_evidence"
+      ]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "readSetProducer": { "type": "string" },
+    "readSetRef": { "type": "string" },
+    "artifactDigestsRef": { "type": "string" },
     "findings": {
       "type": "array",
       "items": { "$ref": "mavsdd-finding" }

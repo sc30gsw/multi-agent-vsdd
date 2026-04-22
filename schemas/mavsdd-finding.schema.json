@@ -2,18 +2,40 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "mavsdd-finding",
   "title": "mavsdd Finding",
-  "description": "Single reviewer finding attached to a verdict or aggregate.",
+  "description": "Single reviewer finding attached to a verdict or aggregate. Plan §17.1.1 adds findingId / blocking / category / routeTo / description / suggestion as richer optional fields; legacy id / detail / recommendation are retained for Codex output that only fills the minimal set.",
   "type": "object",
-  "required": ["id", "severity", "title"],
+  "required": ["severity", "title"],
+  "anyOf": [
+    { "required": ["id"] },
+    { "required": ["findingId"] }
+  ],
   "properties": {
     "id": { "type": "string", "minLength": 1 },
+    "findingId": { "type": "string", "minLength": 1 },
     "reviewer": { "type": "string" },
     "severity": {
       "type": "string",
       "enum": ["low", "medium", "high", "critical"]
     },
+    "blocking": { "type": "boolean" },
+    "category": { "type": "string" },
+    "routeTo": {
+      "type": "string",
+      "enum": [
+        "implementer",
+        "fixer",
+        "planner",
+        "tester",
+        "auditor",
+        "orphan",
+        "review_meta",
+        "human"
+      ]
+    },
     "title": { "type": "string", "minLength": 1 },
     "detail": { "type": "string" },
+    "description": { "type": "string" },
+    "suggestion": { "type": "string" },
     "artifact": { "type": "string" },
     "filePath": { "type": "string" },
     "lineRange": {
@@ -22,7 +44,6 @@
       "minItems": 2,
       "maxItems": 2
     },
-    "category": { "type": "string" },
     "descriptionDigest": { "type": "string" },
     "recommendation": { "type": "string" },
     "mergedFrom": {

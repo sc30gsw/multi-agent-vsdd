@@ -111,3 +111,44 @@ test("computeQuorum uses ceil(n * 2 / 3) with a floor of 1", () => {
   assert.equal(computeQuorum(3), 2);
   assert.equal(computeQuorum(5), 4);
 });
+
+test("aggregateVerdicts honors judgement.label when present (plan §17.1.1)", () => {
+  const result = aggregateVerdicts(
+    [
+      {
+        reviewer: "r1",
+        verdict: "GREEN",
+        judgement: { label: "RED", reason: "spec gap" },
+        coverageComplete: true,
+        touched_files: ["x"],
+        findings: []
+      }
+    ],
+    { requiredArtifacts: ["x"] }
+  );
+  assert.equal(result.verdict, "RED");
+});
+
+test("dedupeFindings folds rich description/suggestion fields into the digest", () => {
+  const findings = [
+    {
+      reviewer: "r1",
+      filePath: "src/a.js",
+      lineRange: [10, 12],
+      category: "bug",
+      description: "Null dereference on user.profile",
+      suggestion: "Guard with optional chaining."
+    },
+    {
+      reviewer: "r2",
+      filePath: "src/a.js",
+      lineRange: [10, 12],
+      category: "bug",
+      description: "Null dereference on user.profile",
+      suggestion: "Guard with optional chaining."
+    }
+  ];
+  const deduped = dedupeFindings(findings);
+  assert.equal(deduped.length, 1);
+  assert.deepEqual(deduped[0].mergedFrom.sort(), ["r1", "r2"]);
+});

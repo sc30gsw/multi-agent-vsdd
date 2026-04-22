@@ -5,7 +5,15 @@ function sha256Digest(text) {
 }
 
 function buildDescriptionDigest(finding) {
-  const body = [finding.detail ?? "", finding.description ?? "", finding.title ?? ""]
+  // Plan §17.1.1: finding may expose description/suggestion alongside the
+  // legacy detail/recommendation. Fold both into the digest so dedup still
+  // collapses the same problem whether the reviewer used rich or legacy shape.
+  const body = [
+    finding.detail ?? "",
+    finding.description ?? "",
+    finding.suggestion ?? "",
+    finding.title ?? ""
+  ]
     .map((segment) => segment.trim().replace(/\s+/g, " "))
     .join("|");
   return finding.descriptionDigest || sha256Digest(body);
@@ -17,6 +25,12 @@ function findingKey(finding) {
   const category = finding.category || finding.title || "(uncategorized)";
   const digest = buildDescriptionDigest(finding);
   return `${file}|${range}|${category}|${digest}`;
+}
+
+function coerceVerdictLabel(entry) {
+  // Plan §17.1.1: judgement.label is the authoritative verdict when present.
+  if (entry && entry.judgement && entry.judgement.label) return entry.judgement.label;
+  return entry?.verdict;
 }
 
 export function dedupeFindings(findings) {
@@ -81,7 +95,10 @@ export function computeQuorum(reviewerCount) {
 
 export function aggregateVerdicts(verdicts, options = {}) {
   const { requiredArtifacts = [], manifestReviewerCount = null } = options;
-  const adjusted = downgradeVerdictsForCoverage(verdicts, requiredArtifacts);
+  const adjusted = downgradeVerdictsForCoverage(verdicts, requiredArtifacts).map((entry) => ({
+    ...entry,
+    verdict: coerceVerdictLabel(entry)
+  }));
   const present = adjusted.filter((verdict) => verdict.verdict && verdict.verdict !== "PENDING");
   const eligible = present.filter((verdict) => verdict.coverageComplete !== false);
   const ineligible = present.filter((verdict) => verdict.coverageComplete === false);

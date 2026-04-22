@@ -2392,6 +2392,7 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
         "exec",
         "--skip-git-repo-check",
         "--ephemeral",
+        "--ignore-user-config",
         "--sandbox",
         "read-only",
         "--model",
@@ -2507,6 +2508,11 @@ function gatherImplementationArtifacts(root, units) {
 }
 
 function reviewSchema() {
+  // Plan §17.1.1 reviewer report shape. Required fields match what real Codex
+  // reliably produces today (summary/verdict/coverageComplete/findings); the
+  // richer fields (evaluation, judgement, recommendedAction, confidence) are
+  // optional so Codex can fill them when prompted, and aggregate uses them
+  // opportunistically without hard-requiring Codex to emit them every run.
   return {
     type: "object",
     additionalProperties: false,
@@ -2518,6 +2524,49 @@ function reviewSchema() {
         enum: ["GREEN", "YELLOW", "RED"]
       },
       coverageComplete: { type: "boolean" },
+      touched_files: {
+        type: "array",
+        items: { type: "string" }
+      },
+      evaluation: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          architecture: { type: ["number", "string"] },
+          testability: { type: ["number", "string"] },
+          operability: { type: ["number", "string"] },
+          evidencePaths: {
+            type: "array",
+            items: { type: "string" }
+          }
+        }
+      },
+      judgement: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: {
+            type: "string",
+            enum: ["GREEN", "YELLOW", "RED"]
+          },
+          reason: { type: "string" }
+        }
+      },
+      recommendedAction: {
+        type: "string",
+        enum: [
+          "accept",
+          "accept_with_followup",
+          "revise_then_re-review",
+          "block",
+          "escalate",
+          "needs_more_evidence"
+        ]
+      },
+      confidence: {
+        type: "string",
+        enum: ["low", "medium", "high"]
+      },
       findings: {
         type: "array",
         items: {
@@ -2530,9 +2579,33 @@ function reviewSchema() {
               type: "string",
               enum: ["low", "medium", "high", "critical"]
             },
+            blocking: { type: "boolean" },
+            category: { type: "string" },
+            routeTo: {
+              type: "string",
+              enum: [
+                "implementer",
+                "fixer",
+                "planner",
+                "tester",
+                "auditor",
+                "orphan",
+                "review_meta",
+                "human"
+              ]
+            },
             title: { type: "string" },
             detail: { type: "string" },
+            description: { type: "string" },
+            suggestion: { type: "string" },
             artifact: { type: "string" },
+            filePath: { type: "string" },
+            lineRange: {
+              type: "array",
+              items: { type: "number" },
+              minItems: 2,
+              maxItems: 2
+            },
             recommendation: { type: "string" }
           }
         }
