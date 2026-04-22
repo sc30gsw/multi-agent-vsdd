@@ -131,6 +131,8 @@ const IMPL_ARTIFACTS = [
   "apply-log.jsonl",
   "verification/summary.json",
   "verification/profile.json",
+  "verification_reports",
+  "traceability/contract-chain.jsonl",
   "implementations",
   "plan.md",
   "team-composition.json",
@@ -495,7 +497,10 @@ async function initializeFeatureFiles(repoRoot, feature, state) {
       "- Requirements are explicit and testable.",
       "- Team composition matches the required file surface.",
       "- Verification plan can prove the feature works.",
-      "- Human approval gate is preserved."
+      "- Human approval gate is preserved.",
+      "- During plan review, judge whether later-phase evidence is defined well enough to be produced; do not require stage/apply/verify artifacts to already exist.",
+      "- Unchecked future checklist items are expected before approval and are not findings by themselves.",
+      "- Set coverageComplete=true when the supplied planning artifacts are sufficient to evaluate the design, even if implementation artifacts are not generated yet."
     ].join("\n")
   );
 
@@ -708,6 +713,30 @@ function phaseEmoji(phase) {
 }
 
 function renderNextForIndex(feature, state, iter) {
+  const recipe = nextStepRecipe(feature, state, iter);
+  const filesSection = recipe.files.length
+    ? recipe.files
+        .map((entry) => `- [\`${entry.path}\`](./${entry.path}) — ${entry.note}`)
+        .join("\n")
+    : "_(no specific files to read at this phase)_";
+  const nextBlock = state.phase === "done"
+    ? "Feature complete. No further action."
+    : ["```bash", recipe.next, "```"].join("\n");
+
+  return [
+    `**Do**: ${recipe.what}`,
+    "",
+    "**Open**:",
+    "",
+    filesSection,
+    "",
+    "**Then run**:",
+    "",
+    nextBlock
+  ].join("\n");
+}
+
+function nextStepRecipe(feature, state, iter) {
   const phase = state.phase;
   const planIter = iter.plan || 0;
   const implIter = iter.impl || 0;
@@ -728,7 +757,7 @@ function renderNextForIndex(feature, state, iter) {
         { path: "specs/verification-architecture.md", note: "検証設計" },
         { path: "specs/test-strategy.md", note: "テスト戦略" }
       ],
-      next: `node scripts/cli/mavsdd.mjs plan-review --feature ${feature} --reviewers 1`
+      next: `node scripts/cli/mavsdd.mjs plan-review --feature ${feature} --reviewers 3`
     }),
     plan_reviewed: () => ({
       what: "aggregate と個別 verdict を確認、accept-risk の要否を判断",
@@ -780,7 +809,7 @@ function renderNextForIndex(feature, state, iter) {
         { path: "verification/summary.json", note: "success / overallVerdict" },
         { path: "verification/reports/*.md", note: "fail なら stdout/stderr" }
       ],
-      next: `node scripts/cli/mavsdd.mjs impl-review --feature ${feature} --reviewers 1`
+      next: `node scripts/cli/mavsdd.mjs impl-review --feature ${feature} --reviewers 3`
     }),
     impl_reviewed: () => ({
       what: "aggregate と個別 verdict を確認、approve-impl に進む",
@@ -808,37 +837,27 @@ function renderNextForIndex(feature, state, iter) {
     }),
     done: () => ({
       what: "feature 完了。監査ログを確認して終了",
-      files: [
-        { path: "human-approvals.jsonl", note: "全 approve の監査ログ（accept-risk 含む）" }
-      ],
-      next: "(feature complete — no next command)"
+      files: [],
+      next: null,
+      note: "Feature complete. No further action."
     })
   };
 
   const recipeFn = recipes[phase];
-  const recipe = typeof recipeFn === "function"
+  return typeof recipeFn === "function"
     ? recipeFn()
-    : { what: `現在の phase \`${phase}\` に対応する recipe 未定義`, files: [], next: `node scripts/cli/mavsdd.mjs status --feature ${feature}` };
+    : { what: `現在の phase \`${phase}\` に対応する recipe 未定義`, files: [], next: `node scripts/cli/mavsdd.mjs status --feature ${feature}`, note: null };
+}
 
-  const filesSection = recipe.files.length
-    ? recipe.files
-        .map((entry) => `- [\`${entry.path}\`](./${entry.path}) — ${entry.note}`)
-        .join("\n")
-    : "_(no specific files to read at this phase)_";
-
-  return [
-    `**Do**: ${recipe.what}`,
-    "",
-    "**Open**:",
-    "",
-    filesSection,
-    "",
-    "**Then run**:",
-    "",
-    "```bash",
-    recipe.next,
-    "```"
-  ].join("\n");
+export async function nextStepsForFeature(repoRoot, feature, stateInput) {
+  const state = stateInput ?? (await loadState(repoRoot, feature));
+  const recipe = nextStepRecipe(feature, state, state.reviewIterations || {});
+  return {
+    phase: state.phase,
+    inspect: recipe.files.map((entry) => entry.path),
+    nextCommand: recipe.next,
+    note: recipe.note ?? null
+  };
 }
 
 function renderRecentEvents(repoRoot, feature) {
@@ -876,7 +895,7 @@ async function appendTraceability(repoRoot, feature, entry) {
 function buildFeatureConfig(state) {
   return {
     schemaVersion: "1.0",
-    juryCount: 1,
+    juryCount: 3,
     juryTimeoutSec: 900,
     maxFixIterations: 3,
     maxReviewerRetries: 2,
@@ -887,7 +906,7 @@ function buildFeatureConfig(state) {
     verificationProfileRef: `.mavsdd/features/${state.feature}/verification/profile.json`,
     reviewPolicy: {
       mode: "fail-closed-adversarial-gate",
-      quorumRatio: "1/1"
+      quorumRatio: "2/3"
     },
     modelPolicy: {
       planner: {
@@ -991,13 +1010,13 @@ function normalizeUnitDefinition(unit) {
     : Array.isArray(unit.writeFiles)
       ? unit.writeFiles
       : [];
-  const writeFiles = Array.isArray(unit.writeFiles) && unit.writeFiles.length > 0
+  const writeFiles = Array.isArray(unit.writeFiles)
     ? unit.writeFiles
-    : files;
+    : files.filter((file) => !String(file).endsWith("/"));
   const writePaths = Array.isArray(unit.writePaths) && unit.writePaths.length > 0
     ? unit.writePaths.map(normalizeScopePrefix)
     : inferPathsFromFiles(writeFiles);
-  const readFiles = Array.isArray(unit.readFiles) && unit.readFiles.length > 0
+  const readFiles = Array.isArray(unit.readFiles)
     ? unit.readFiles
     : writeFiles;
   const readPaths = Array.isArray(unit.readPaths) && unit.readPaths.length > 0
@@ -1281,24 +1300,24 @@ function buildTeamComposition(state) {
       {
         id: "sample-logic",
         role: "implementer",
-        paths: ["src/range.js", "src/index.js"],
+        paths: ["src/"],
         dependsOn: [],
         writePaths: ["src/"],
-        writeFiles: ["src/range.js", "src/index.js"],
+        writeFiles: [],
         readPaths: ["src/", "tests/"],
-        readFiles: ["tests/range.test.js"],
+        readFiles: [],
         verificationTier: "tier0",
         briefPath: "contexts/unit-sample-logic.md"
       },
       {
         id: "sample-tests",
         role: "tester",
-        paths: ["tests/range.test.js"],
+        paths: ["tests/"],
         dependsOn: ["sample-logic"],
         writePaths: ["tests/"],
-        writeFiles: ["tests/range.test.js"],
+        writeFiles: [],
         readPaths: ["src/", "tests/"],
-        readFiles: ["src/range.js", "src/index.js"],
+        readFiles: [],
         verificationTier: "tier0",
         briefPath: "contexts/unit-sample-tests.md"
       },
@@ -1355,9 +1374,9 @@ function renderPlanMarkdown(state, requirements, team) {
     "",
     "## Unit Verification Gates",
     "",
-    "- `sample-logic`: proven by `operations/sample-logic/operations.json` with changed paths and `requirementCoverage` for REQ-1a/REQ-1b/REQ-1c/REQ-1d/REQ-1e/REQ-2/REQ-3/REQ-6, plus a green shared `npm test` run after apply. The manifest must show both `src/range.js` and `src/index.js` when REQ-2/REQ-3/REQ-6 are implemented.",
-    "- `sample-tests`: proven by the shared `npm test` run and `verification/reports/sample-tests.md`.",
-    "- `sample-audit`: proven by a completed `specs/reuse-evidence.md` linked to `operations/sample-logic/operations.json` and `verification/summary.json`.",
+    "- `sample-logic`: proven by `operations/sample-logic/operations.json` plus a green shared verification run after apply.",
+    "- `sample-tests`: proven by test updates under `tests/` and the shared verification run.",
+    "- `sample-audit`: optional static audit path. Use it only when the feature needs explicit reuse / migration evidence.",
     ""
   ].join("\n");
 }
@@ -1368,17 +1387,14 @@ function renderBehavioralSpec(state) {
     "",
     `Feature: ${state.feature}`,
     "",
-    "The sample app must expose range aggregation helpers that operate on inclusive integer ranges.",
+    "This file is an optional scaffold. `plan.md` is the single source of truth in v1.",
     "",
     "Expected behavior:",
     "",
-    "- `sumRange(start, end)` and `describeRange(start, end)` must reuse the current validation path so behavior stays aligned with `normalizeRange`, `listRange`, and `sum`.",
-    "- Non-integer `start` must throw `TypeError(\"start must be an integer\")`.",
-    "- Non-integer `end` must throw `TypeError(\"end must be an integer\")`.",
-    "- Descending ranges must throw `RangeError(\"start must be less than or equal to end\")`.",
-    "- `sumRange(start, end)` returns the inclusive sum between the edges.",
-    "- `describeRange(start, end)` returns `{ start, end, count, values, sum, average }`.",
-    "- `describeRange` verification must cover a single-point range, a zero-crossing or negative range, and a range whose average is fractional."
+    `- Goal summary: ${state.goal}`,
+    "- Expand this file only when the feature needs a behavior narrative beyond `plan.md`.",
+    "- Keep public contracts, validation rules, and response shapes concrete enough for adversarial review.",
+    `- Verification is complete only when \`${state.verifyCommand}\` passes on the live target repo.`
   ].join("\n");
 }
 
@@ -1494,16 +1510,14 @@ function renderConvergenceChecklist(state, verified) {
 }
 
 function renderPlannerBrief(state, team) {
-  const targetRangePath = `${state.targetRepoRelative}/src/range.js`;
-  const targetTestPath = `${state.targetRepoRelative}/tests/range.test.js`;
   return [
     "# Planner Brief",
     "",
     `Goal: ${state.goal}`,
     "",
     `Drive the feature through the trusted CLI. Keep all canonical state under \`.mavsdd/features/${state.feature}/\`.`,
-    "The existing sample implementation already exposes `normalizeRange`, `listRange`, and `sum`; plan around reusing them instead of duplicating logic.",
-    `Baseline evidence before planning: \`${targetRangePath}\` defines \`normalizeRange\`, \`listRange\`, and \`sum\`, and \`${targetTestPath}\` already proves \`sum(listRange(1, 4)) === 10\`.`,
+    "Use `plan.md` as the source of truth. The generated specs are scaffolds that the operator may extend before review.",
+    `Baseline target repo lives at \`${state.targetRepoRelative}\`. Inspect existing \`src/\`, \`tests/\`, and any runtime entrypoints before widening scope.`,
     "",
     "Units:",
     "",
@@ -1516,19 +1530,17 @@ function renderRepoPointers(state) {
     "# Repo Pointers",
     "",
     `- Target repo: \`${state.targetRepoRelative}\``,
-    "- Range logic lives in `src/range.js`.",
-    "- `src/range.js` already exposes `normalizeRange`, `listRange`, and `sum`; new helpers should reuse them.",
-    "- `normalizeRange` owns the exact error types and messages for invalid input.",
-    "- Public exports live in `src/index.js`.",
-    "- Tests live in `tests/range.test.js` and should prove both the aggregate values and the validation contract.",
-    "- Baseline verification command is `npm test`; current plan artifacts assume the pre-change suite is green."
+    "- Source changes normally live under `src/`; tests normally live under `tests/`.",
+    "- Preserve the existing exported surface unless `plan.md` explicitly changes it.",
+    "- If the feature adds an HTTP surface or UI entrypoint, keep request/response contracts concrete and testable.",
+    `- Baseline verification command is \`${state.verifyCommand}\`; current plan artifacts assume the pre-change suite is green.`
   ].join("\n");
 }
 
 function renderUnitBrief(state, unit) {
   const implementationNote = unit.id === "sample-audit"
-    ? "Review staged operations and verification artifacts, then update specs/reuse-evidence.md with a completed static audit."
-    : "Preserve the existing `normalizeRange` contract and prefer reuse over duplicate range logic.";
+    ? "Review staged operations and verification artifacts, then update optional audit docs only if the feature needs them."
+    : "Stay inside the declared write scope, keep changes minimal, and let `plan.md` drive feature-specific behavior.";
   return [
     `# Unit ${unit.id}`,
     "",
@@ -1671,13 +1683,13 @@ export async function generateRedArtifacts(repoRoot, feature) {
     expectedFailingTests: [
       {
         id: "RED-1",
-        command: "node --test tests/range.test.js",
-        description: "describeRange should expose count, sum, and average"
+        command: state.verifyCommand,
+        description: "Add or update at least one failing assertion that proves the new feature surface before implementation turns green."
       },
       {
         id: "RED-2",
-        command: "node --test tests/range.test.js",
-        description: "sumRange should reject invalid descending ranges"
+        command: state.verifyCommand,
+        description: "Document at least one boundary or error-path expectation the implementation must satisfy."
       }
     ]
   };
@@ -1812,7 +1824,6 @@ export async function runClaudeImplementation(repoRoot, feature) {
   process.stderr.write(`[mavsdd] implement: materializing workspace for ${feature}...\n`);
   const materialize = await materializeWorkspaces(repoRoot, feature);
   const root = materialize.root;
-  const repoDir = materialize.repoDir;
   Object.assign(state, materialize.state);
   process.stderr.write(`[mavsdd] implement: spawning Claude agent team for ${feature}...\n`);
   await appendRunMetadata(repoRoot, feature, {
@@ -1822,42 +1833,56 @@ export async function runClaudeImplementation(repoRoot, feature) {
     detail: { feature, step: "spawn_agent_team" }
   });
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
+  const planMarkdown = await fs.readFile(path.join(root, "plan.md"), "utf8").catch(() => "");
   const agents = {
     "sample-logic": {
-      description: "Implements the core range logic in src files.",
+      description: "Implements source changes under workspace/repo/src/.",
       prompt:
-        "Focus on source code changes in src/. Keep changes minimal and consistent with the existing style."
+        "Focus on source code changes under workspace/repo/src/. Keep changes minimal and consistent with the existing style."
     },
     "sample-tests": {
-      description: "Adds node:test coverage for the new range helpers.",
+      description: "Adds or updates tests under workspace/repo/tests/.",
       prompt:
-        "Focus on node:test coverage in tests/. Ensure edge cases are covered and the full suite passes."
+        "Focus on tests under workspace/repo/tests/. Ensure edge cases are covered and the full suite passes."
     },
     "sample-audit": {
-      description: "Writes the static reuse audit in specs/reuse-evidence.md after reviewing staged evidence.",
+      description: "Updates optional audit artifacts under specs/ when the feature needs them.",
       prompt:
-        "Focus on specs/reuse-evidence.md. Record concrete evidence references for helper reuse and complete the audit fields."
+        "Focus on specs/reuse-evidence.md only when the feature explicitly needs a static audit trail. Otherwise leave audit scaffolds untouched."
     }
   };
   const schemaPath = path.join(root, "team-runtime/claude-implement-schema.json");
   const responsePath = path.join(root, "team-runtime/claude-implement-last-message.json");
   const rawPath = path.join(root, "team-runtime/claude-implement-raw-response.json");
   const prompt = [
-    "You are implementing a feature in a sample Node.js repository.",
+    "You are implementing a feature in a sample repository managed by the mavsdd harness.",
     "Use the available agent capability to delegate work to `sample-logic`, `sample-tests`, and `sample-audit` before you finish.",
     "Repository constraints:",
-    "- Modify only files under the current working directory.",
-    "- Do not touch files outside the repo.",
-    "- Run `npm test` before finishing.",
+    "- Source-of-truth plan is `plan.md` in the current working directory.",
+    "- Code changes must happen under `workspace/repo/`.",
+    "- Optional audit docs may be updated under `specs/` if the feature explicitly needs them.",
+    "- Do not touch files outside `.mavsdd/features/<feature>/`.",
+    "- Run the verification command from inside `workspace/repo/` before finishing.",
     "",
     `Feature goal: ${state.goal}`,
     "",
-    "Required code changes:",
-    "- Add `sumRange(start, end)` to src/range.js.",
-    "- Add `describeRange(start, end)` to src/range.js.",
-    "- Export both functions from src/index.js.",
-    "- Extend tests/range.test.js to cover the new behavior.",
-    "- Update specs/reuse-evidence.md with concrete evidence refs after reviewing the resulting code changes.",
+    "Plan markdown:",
+    "",
+    "```markdown",
+    planMarkdown.slice(0, 40_000),
+    "```",
+    "",
+    "Team write scopes:",
+    ...teamComposition.units.map(
+      (unit) =>
+        `- ${unit.id}: role=${unit.role}; writePaths=${(unit.writePaths || []).join(", ") || "(none)"}; writeFiles=${(unit.writeFiles || []).join(", ") || "(none)"}`
+    ),
+    "",
+    "Completion contract:",
+    "- Implement the feature exactly as described in `plan.md`.",
+    "- Keep backward compatibility for existing exports unless `plan.md` explicitly changes them.",
+    "- Report `changedFiles` as target-repo-relative paths for code/test files (for example `src/server.js`, `tests/http.test.js`) and as feature-root-relative paths for audit docs (for example `specs/reuse-evidence.md`).",
+    "- Set `testsPassed=true` only if the verification command succeeds from `workspace/repo/`.",
     "",
     "Return JSON matching the schema."
   ].join("\n");
@@ -1913,7 +1938,7 @@ export async function runClaudeImplementation(repoRoot, feature) {
       "-"
     ],
     {
-      cwd: repoDir,
+      cwd: root,
       input: prompt,
       env: {
         ...process.env,
@@ -1981,14 +2006,19 @@ export async function runClaudeImplementation(repoRoot, feature) {
     );
   }
 
+  const normalizedChangedFiles = parsed.changedFiles.map((file) =>
+    String(file).startsWith("workspace/repo/")
+      ? String(file).slice("workspace/repo/".length)
+      : String(file)
+  );
   for (const unit of teamComposition.units) {
     await writeJson(path.join(root, "implementations", unit.id, "status.json"), {
       unit: unit.id,
-      status: parsed.changedFiles.some((file) => unit.paths.includes(file))
+      status: normalizedChangedFiles.some((file) => pathAllowedByUnit(file, unit))
         ? "implemented"
         : "unchanged",
       updatedAt: nowIso(),
-      changedFiles: parsed.changedFiles.filter((file) => unit.paths.includes(file))
+      changedFiles: normalizedChangedFiles.filter((file) => pathAllowedByUnit(file, unit))
     });
   }
 
@@ -2044,6 +2074,13 @@ function inferRequirementRefsForPath(relativePath) {
   return [];
 }
 
+async function loadRequirementIds(root) {
+  const payload = await readJson(path.join(root, "specs", "requirements-index.json"), null);
+  return Array.isArray(payload?.requirements)
+    ? payload.requirements.map((requirement) => requirement.id).filter(Boolean)
+    : [];
+}
+
 export async function stageOperations(repoRoot, feature) {
   const state = await loadState(repoRoot, feature);
   ensureCommandEntryPhase(state, "stage");
@@ -2053,6 +2090,7 @@ export async function stageOperations(repoRoot, feature) {
   const baseManifest = await buildDiffManifest(baseDir);
   const repoManifest = await buildDiffManifest(repoDir);
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
+  const requirementIds = await loadRequirementIds(root);
   const operationsByUnit = new Map(teamComposition.units.map((unit) => [unit.id, []]));
   const baselineManifest = await readJson(
     path.join(root, "workspace/baseline-manifest.json"),
@@ -2082,9 +2120,17 @@ export async function stageOperations(repoRoot, feature) {
       );
     }
     const unitId = [...ownerSet][0];
-    const requirementRefs = Array.from(
+    const unit = teamComposition.units.find((entry) => entry.id === unitId) || null;
+    const inferredRequirementRefs = Array.from(
       new Set(ownersByPath.flatMap(({ relativePath }) => inferRequirementRefsForPath(relativePath)))
     );
+    const declaredCoverage = Array.isArray(unit?.requirementCoverage)
+      ? unit.requirementCoverage.filter(Boolean)
+      : [];
+    const requirementRefs = (inferredRequirementRefs.length > 0
+      ? inferredRequirementRefs
+      : requirementIds)
+      .filter((requirementId) => declaredCoverage.length === 0 || declaredCoverage.includes(requirementId));
     operation.requirementRefs = requirementRefs;
     if (operation.baseHash === null && baselineManifest.files?.[operation.path]?.sha256) {
       operation.baseHash = baselineManifest.files[operation.path].sha256;
@@ -2097,6 +2143,10 @@ export async function stageOperations(repoRoot, feature) {
   for (const [unitId, operations] of operationsByUnit.entries()) {
     validateOperationsAgainstBaseline(operations, baselineManifest.files || {});
     await ensureDir(path.join(root, "operations", unitId));
+    const unit = teamComposition.units.find((entry) => entry.id === unitId) || null;
+    const declaredCoverage = Array.isArray(unit?.requirementCoverage)
+      ? unit.requirementCoverage.filter(Boolean)
+      : [];
     const manifest = {
       schemaVersion: "1.0",
       feature,
@@ -2111,11 +2161,13 @@ export async function stageOperations(repoRoot, feature) {
           )
         )
       ).sort(),
-      requirementCoverage: Array.from(
-        new Set(
-          operations.flatMap((operation) => operation.requirementRefs || [])
-        )
-      ).sort(),
+      requirementCoverage: declaredCoverage.length > 0
+        ? declaredCoverage
+        : Array.from(
+            new Set(
+              operations.flatMap((operation) => operation.requirementRefs || [])
+            )
+          ).sort(),
       ops: operations,
       operations
     };
@@ -2555,6 +2607,9 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
         if (item === "operations") {
           return gatherOperationArtifacts(root, teamComposition.units);
         }
+        if (item === "verification_reports") {
+          return teamComposition.units.map((unit) => `verification/reports/${unit.id}.md`);
+        }
         if (item === "implementations") {
           return gatherImplementationArtifacts(root, teamComposition.units);
         }
@@ -2630,6 +2685,18 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
       `You are reviewer ${reviewerIndex} for scope ${scope}.`,
       "Review the provided artifacts and return a verdict.",
       "You must be strict about gaps in requirements, verification, and implementation evidence.",
+      ...(scope === "plan"
+        ? [
+            "This is a plan-phase review.",
+            "Do not require red/stage/apply/verify artifacts to already exist.",
+            "Unchecked future-state checklist items are expected at plan review time and are not findings by themselves.",
+            "Judge whether the plan defines later evidence well enough to be produced, not whether that later evidence already exists.",
+            "Set coverageComplete=true when the planning artifacts are sufficient to evaluate the plan."
+          ]
+        : []),
+      "Return JSON only.",
+      "The JSON must contain exactly these top-level keys: summary, verdict, coverageComplete, findings.",
+      "Each finding must contain exactly: id, severity, title, detail, artifact, recommendation.",
       "",
       JSON.stringify(
         {
@@ -3084,11 +3151,10 @@ function gatherImplementationArtifacts(root, units) {
 }
 
 function reviewSchema() {
-  // Plan §17.1.1 reviewer report shape. Required fields match what real Codex
-  // reliably produces today (summary/verdict/coverageComplete/findings); the
-  // richer fields (evaluation, judgement, recommendedAction, confidence) are
-  // optional so Codex can fill them when prompted, and aggregate uses them
-  // opportunistically without hard-requiring Codex to emit them every run.
+  // Real Codex currently requires every object schema to declare `required`
+  // covering all defined properties. Keep the reviewer contract intentionally
+  // minimal so the schema remains valid across Codex versions and aggregate
+  // still receives the fields it actually uses for gating.
   return {
     type: "object",
     additionalProperties: false,
@@ -3100,49 +3166,6 @@ function reviewSchema() {
         enum: ["GREEN", "YELLOW", "RED"]
       },
       coverageComplete: { type: "boolean" },
-      touched_files: {
-        type: "array",
-        items: { type: "string" }
-      },
-      evaluation: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          architecture: { type: ["number", "string"] },
-          testability: { type: ["number", "string"] },
-          operability: { type: ["number", "string"] },
-          evidencePaths: {
-            type: "array",
-            items: { type: "string" }
-          }
-        }
-      },
-      judgement: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          label: {
-            type: "string",
-            enum: ["GREEN", "YELLOW", "RED"]
-          },
-          reason: { type: "string" }
-        }
-      },
-      recommendedAction: {
-        type: "string",
-        enum: [
-          "accept",
-          "accept_with_followup",
-          "revise_then_re-review",
-          "block",
-          "escalate",
-          "needs_more_evidence"
-        ]
-      },
-      confidence: {
-        type: "string",
-        enum: ["low", "medium", "high"]
-      },
       findings: {
         type: "array",
         items: {
@@ -3155,33 +3178,9 @@ function reviewSchema() {
               type: "string",
               enum: ["low", "medium", "high", "critical"]
             },
-            blocking: { type: "boolean" },
-            category: { type: "string" },
-            routeTo: {
-              type: "string",
-              enum: [
-                "implementer",
-                "fixer",
-                "planner",
-                "tester",
-                "auditor",
-                "orphan",
-                "review_meta",
-                "human"
-              ]
-            },
             title: { type: "string" },
             detail: { type: "string" },
-            description: { type: "string" },
-            suggestion: { type: "string" },
             artifact: { type: "string" },
-            filePath: { type: "string" },
-            lineRange: {
-              type: "array",
-              items: { type: "number" },
-              minItems: 2,
-              maxItems: 2
-            },
             recommendation: { type: "string" }
           }
         }
@@ -3359,10 +3358,10 @@ export async function recordApproval(repoRoot, feature, type, options = {}) {
     );
   }
 
-  if (type !== "plan") {
-    if (aggregate.verdict !== "GREEN") {
-      throw new Error("approve-impl requires a GREEN impl aggregate.");
-    }
+  if (aggregate.verdict !== "GREEN") {
+    throw new Error(type === "plan"
+      ? "approve-plan requires a GREEN plan aggregate."
+      : "approve-impl requires a GREEN impl aggregate.");
   }
 
   await appendJsonl(path.join(root, "human-approvals.jsonl"), entry);

@@ -53,7 +53,12 @@ function coverageGap(verdict, requiredArtifacts) {
   if (!Array.isArray(requiredArtifacts) || requiredArtifacts.length === 0) {
     return [];
   }
-  const touched = Array.isArray(verdict.touched_files) ? new Set(verdict.touched_files) : new Set();
+  // Codex-backed reviewers in v1 may omit touched_files entirely. In that case
+  // treat coverage as "unknown but not disproven" and rely on coverageComplete.
+  if (!Array.isArray(verdict.touched_files)) {
+    return [];
+  }
+  const touched = new Set(verdict.touched_files);
   return requiredArtifacts.filter((artifact) => !touched.has(artifact));
 }
 

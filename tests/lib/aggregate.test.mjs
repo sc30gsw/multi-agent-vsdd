@@ -54,6 +54,20 @@ test("downgradeVerdictsForCoverage converts GREEN to YELLOW when artifacts were 
   assert.ok(adjusted[0].findings.some((finding) => finding.category === "coverage_incomplete"));
 });
 
+test("downgradeVerdictsForCoverage leaves GREEN unchanged when touched_files are omitted", () => {
+  const verdicts = [
+    {
+      reviewer: "r1",
+      verdict: "GREEN",
+      coverageComplete: true,
+      findings: []
+    }
+  ];
+  const adjusted = downgradeVerdictsForCoverage(verdicts, ["a.md", "b.md"]);
+  assert.equal(adjusted[0].verdict, "GREEN");
+  assert.equal(adjusted[0].coverageComplete, true);
+});
+
 test("aggregateVerdicts yields GREEN when quorum is met and no issues are present", () => {
   const result = aggregateVerdicts(
     [

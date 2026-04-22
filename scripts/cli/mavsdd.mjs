@@ -53,6 +53,10 @@ async function buildNextSteps(repoRoot, feature, command) {
       `.mavsdd/features/${feature}/specs/verification-architecture.md`,
       `.mavsdd/features/${feature}/specs/test-strategy.md`
     ],
+    plan_review_pending: [
+      `.mavsdd/features/${feature}/reviews/plan/iteration-${planIter}/aggregate.json`,
+      `.mavsdd/features/${feature}/reviews/plan/iteration-${planIter}/reviewer-*/verdict.json`
+    ],
     plan_reviewed: [
       `.mavsdd/features/${feature}/reviews/plan/iteration-${planIter}/aggregate.json`,
       `.mavsdd/features/${feature}/reviews/plan/iteration-${planIter}/reviewer-*/verdict.json`
@@ -88,7 +92,7 @@ async function buildNextSteps(repoRoot, feature, command) {
 
   const nextByPhase = {
     initialized: `node scripts/cli/mavsdd.mjs plan --feature ${feature} --goal "<goal>"`,
-    planned: `node scripts/cli/mavsdd.mjs plan-review --feature ${feature} --reviewers 1  # or inject mock verdicts and run aggregate`,
+    planned: `node scripts/cli/mavsdd.mjs plan-review --feature ${feature} --reviewers 3  # use --backend claude if Codex is unavailable`,
     plan_review_pending: `node scripts/cli/mavsdd.mjs aggregate --feature ${feature} --scope plan`,
     plan_reviewed: `node scripts/cli/mavsdd.mjs approve-plan --feature ${feature} --by <name> [--accept-risk "<reason>"]`,
     plan_approved: `node scripts/cli/mavsdd.mjs red --feature ${feature}`,
@@ -96,7 +100,7 @@ async function buildNextSteps(repoRoot, feature, command) {
     implemented: `node scripts/cli/mavsdd.mjs stage --feature ${feature}`,
     staged: `node scripts/cli/mavsdd.mjs apply --feature ${feature}`,
     applied: `node scripts/cli/mavsdd.mjs verify --feature ${feature}`,
-    verified: `node scripts/cli/mavsdd.mjs impl-review --feature ${feature} --reviewers 1  # or mock`,
+    verified: `node scripts/cli/mavsdd.mjs impl-review --feature ${feature} --reviewers 3  # use --backend claude if Codex is unavailable`,
     impl_review_pending: `node scripts/cli/mavsdd.mjs aggregate --feature ${feature} --scope impl`,
     impl_reviewed: `node scripts/cli/mavsdd.mjs approve-impl --feature ${feature} --by <name> [--accept-risk "<reason>"]`,
     fix_required: `node scripts/cli/mavsdd.mjs fix --feature ${feature}`,
