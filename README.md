@@ -61,12 +61,45 @@ init → plan → plan-review → aggregate → approve-plan
 
 ## `.mavsdd/features/<feature>/` 内部ガイド
 
-> 正直に言うと、`.mavsdd/` の内部構造は細かいです。幸い **CLI が毎回 `nextSteps.inspect[]` で "今見るべきファイル" だけを教えてくれる**ので、まずそれに従ってください。このセクションは "CLI が何を見ろと言っているのか理解したい" ときの索引です。
+> **一番先に開くのは `.mavsdd/features/<feature>/INDEX.md` です。** 全 CLI コマンド実行のたびに自動再生成され、**今の phase / 進捗チェックリスト / 次に開くファイル（リンク付き）/ 次の CLI コマンド / 直近 5 イベント**を 1 ファイルで示します。README を開かずとも判断できるよう設計しています。
 
-### 3 つの視点
+### INDEX.md は何を見せるか
+
+```markdown
+# <feature>  🟢 `planned`
+
+## Progress
+- [x] Initialized
+- [ ] Planned ← 現在
+- [ ] Plan reviewed
+...
+
+## 👉 Next
+**Do**: scaffold に user 固有の要件を書き足してから plan-review に進む
+
+**Open**:
+- [`plan.md`](./plan.md) — 📌 goal / 要件を編集
+- [`specs/requirements-index.json`](./specs/requirements-index.json) — REQ-* を追記
+- [`specs/verification-architecture.md`](./specs/verification-architecture.md) — 検証設計
+...
+
+**Then run**:
+node scripts/cli/mavsdd.mjs plan-review --feature <f> --reviewers 1
+
+## Feature
+- Goal: ...
+- Target: ...
+
+## Recent events (last 5)
+...
+```
+
+VS Code / GitHub / Obsidian 等の Markdown プレビューで、`Open` セクションのリンクから **1 クリックで該当ファイルに飛べます**。
+
+### 以下は索引としてのみ。INDEX.md に従えば読む必要なし
 
 1. **フォルダ役割一覧** — 各ディレクトリが何のために存在するか（保管庫のラベル）
-2. **必読（go/no-go）** — CLI が `inspect` に入れてくる "判断のために開く" 5 ファイル
+2. **必読（go/no-go）** — `nextSteps.inspect[]` にも含まれる "判断のために開く" 5 ファイル
 3. **深掘りが必要になったら** — RED や障害調査のときだけ見るファイル
 
 ### (1) フォルダ役割一覧

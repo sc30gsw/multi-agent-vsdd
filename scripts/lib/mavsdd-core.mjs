@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -545,6 +546,12 @@ export async function saveState(repoRoot, feature, state) {
   state.updatedAt = nowIso();
   await assertValid("mavsdd-state", state, `feature-state/${feature}`);
   await writeJson(statePath(repoRoot, feature), state);
+  try {
+    await writeFeatureIndex(repoRoot, feature, state);
+  } catch (error) {
+    // INDEX.md is a UX nicety — never block a state write on its failure.
+    console.error(`[mavsdd] WARN: INDEX.md regeneration failed for ${feature}: ${error.message}`);
+  }
 }
 
 export async function appendRunMetadata(repoRoot, feature, event) {
@@ -553,6 +560,289 @@ export async function appendRunMetadata(repoRoot, feature, event) {
     createdAt: nowIso(),
     ...event
   });
+  try {
+    const state = await readJson(statePath(repoRoot, feature));
+    if (state) await writeFeatureIndex(repoRoot, feature, state);
+  } catch {}
+}
+
+// plan §0.8.2 + UX request: operators should not need to hold README open to
+// know what to read next. INDEX.md is regenerated on every state change so
+// opening `.mavsdd/features/<feature>/` shows the progress checklist, the
+// files to inspect right now, the next CLI command, and recent activity.
+export async function writeFeatureIndex(repoRoot, feature, stateInput) {
+  const state = stateInput ?? (await readJson(statePath(repoRoot, feature)));
+  if (!state) return;
+  const indexPath = path.join(featureRoot(repoRoot, feature), "INDEX.md");
+  const body = renderFeatureIndex(repoRoot, feature, state);
+  await fs.writeFile(indexPath, body);
+}
+
+function renderFeatureIndex(repoRoot, feature, state) {
+  const phase = state.phase;
+  const emoji = phaseEmoji(phase);
+  const iter = state.reviewIterations || { plan: 0, impl: 0 };
+  const checklist = PHASE_PROGRESS.map((entry) => {
+    const checked = entry.isComplete(state);
+    const marker = checked ? "[x]" : "[ ]";
+    const cursor = !checked && phase === entry.activePhase ? " ← 現在" : "";
+    return `- ${marker} ${entry.label}${cursor}`;
+  }).join("\n");
+
+  const next = renderNextForIndex(feature, state, iter);
+  const recent = renderRecentEvents(repoRoot, feature);
+
+  const acceptedRiskLines = (state.approvals || {});
+  const approvals = `plan: ${state.approvals?.plan ? "✅" : "⏳"}, implementation: ${
+    state.approvals?.implementation ? "✅" : "⏳"
+  }`;
+  const lastAggregate = state.lastAggregate || {};
+  const aggregateLine = `plan: ${lastAggregate.plan ?? "—"}, impl: ${lastAggregate.impl ?? "—"}`;
+
+  return [
+    `# ${feature}  ${emoji} \`${phase}\``,
+    "",
+    `Updated: ${state.updatedAt || nowIso()}`,
+    "",
+    "## Progress",
+    "",
+    checklist,
+    "",
+    `Approvals — ${approvals}`,
+    `Last aggregate — ${aggregateLine}`,
+    "",
+    "## 👉 Next",
+    "",
+    next,
+    "",
+    "## Feature",
+    "",
+    `- Goal: \`${(state.goal || "").replace(/`/g, "'") || "(not set)"}\``,
+    `- Target: \`${state.targetRepoRelative || state.targetRepo || "(not set)"}\``,
+    `- Verify: \`${state.verifyCommand || "(not set)"}\``,
+    "",
+    "## Recent events (last 5)",
+    "",
+    recent,
+    "",
+    "---",
+    "*Auto-generated on every `/mavsdd-*` command. Do not edit manually.*",
+    ""
+  ].join("\n");
+}
+
+const PHASE_PROGRESS = [
+  { label: "Initialized", activePhase: "initialized", isComplete: (s) => s.phase !== "initialized" },
+  {
+    label: "Planned",
+    activePhase: "planned",
+    isComplete: (s) =>
+      !["initialized", "planned"].includes(s.phase) || (s.reviewIterations?.plan || 0) > 0
+  },
+  {
+    label: "Plan reviewed",
+    activePhase: "plan_reviewed",
+    isComplete: (s) => (s.reviewIterations?.plan || 0) > 0 && s.approvals?.plan
+  },
+  {
+    label: "Plan approved",
+    activePhase: "plan_approved",
+    isComplete: (s) => Boolean(s.approvals?.plan)
+  },
+  { label: "Red", activePhase: "red", isComplete: (s) =>
+    ["red", "implementing", "implemented", "staged", "impl_applying", "applied",
+     "verifying", "verified", "impl_review_pending", "impl_reviewed",
+     "impl_review_inconclusive", "fix_required", "blocked", "done"].includes(s.phase)
+  },
+  { label: "Implemented", activePhase: "implemented", isComplete: (s) =>
+    ["implemented", "ready_to_stage", "staged", "impl_applying", "applied",
+     "verifying", "verified", "impl_review_pending", "impl_reviewed",
+     "impl_review_inconclusive", "fix_required", "blocked", "done"].includes(s.phase)
+  },
+  { label: "Staged", activePhase: "staged", isComplete: (s) =>
+    ["staged", "impl_applying", "applied", "verifying", "verified",
+     "impl_review_pending", "impl_reviewed", "impl_review_inconclusive",
+     "fix_required", "blocked", "done"].includes(s.phase)
+  },
+  { label: "Applied", activePhase: "applied", isComplete: (s) =>
+    ["applied", "verifying", "verified", "impl_review_pending", "impl_reviewed",
+     "impl_review_inconclusive", "fix_required", "blocked", "done"].includes(s.phase)
+  },
+  { label: "Verified", activePhase: "verified", isComplete: (s) =>
+    ["verified", "impl_review_pending", "impl_reviewed",
+     "impl_review_inconclusive", "fix_required", "blocked", "done"].includes(s.phase)
+  },
+  { label: "Impl reviewed", activePhase: "impl_reviewed", isComplete: (s) =>
+    ["impl_reviewed", "impl_review_inconclusive", "done"].includes(s.phase) || s.approvals?.implementation
+  },
+  { label: "Done", activePhase: "done", isComplete: (s) => s.phase === "done" }
+];
+
+function phaseEmoji(phase) {
+  if (phase === "done") return "🟢";
+  if (phase === "blocked") return "🔴";
+  if (phase === "fix_required") return "🟡";
+  if (phase === "initialized") return "⚪";
+  return "🟢";
+}
+
+function renderNextForIndex(feature, state, iter) {
+  const phase = state.phase;
+  const planIter = iter.plan || 0;
+  const implIter = iter.impl || 0;
+
+  const recipes = {
+    initialized: () => ({
+      what: "feature の goal を与えて plan scaffold を生成する",
+      files: [
+        { path: "feature-state.json", note: "target / verify-command を確認" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs plan --feature ${feature} --goal "<your goal>"`
+    }),
+    planned: () => ({
+      what: "scaffold に user 固有の要件を書き足してから plan-review に進む（plan.md が真実の源）",
+      files: [
+        { path: "plan.md", note: "📌 goal / 要件を編集" },
+        { path: "specs/requirements-index.json", note: "REQ-* を追記する machine 側" },
+        { path: "specs/verification-architecture.md", note: "検証設計" },
+        { path: "specs/test-strategy.md", note: "テスト戦略" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs plan-review --feature ${feature} --reviewers 1`
+    }),
+    plan_reviewed: () => ({
+      what: "aggregate と個別 verdict を確認、accept-risk の要否を判断",
+      files: [
+        { path: `reviews/plan/iteration-${planIter}/aggregate.json`, note: "verdict / conditional を見る" },
+        { path: `reviews/plan/iteration-${planIter}/reviewer-*/verdict.json`, note: "RED/YELLOW の根拠" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs approve-plan --feature ${feature} --by <you> [--accept-risk "<reason>"]`
+    }),
+    plan_approved: () => ({
+      what: "red-phase artifacts を生成する",
+      files: [
+        { path: "human-approvals.jsonl", note: "直近の plan approval を確認" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs red --feature ${feature}`
+    }),
+    red: () => ({
+      what: "implementer team を起動して workspace/repo を編集させる",
+      files: [
+        { path: "red/failing-tests.json", note: "追加予定の failing test" }
+      ],
+      next: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 node scripts/cli/mavsdd.mjs implement --feature ${feature}`
+    }),
+    implemented: () => ({
+      what: "workspace と target の diff を operations manifest にまとめる",
+      files: [
+        { path: "workspace/repo/", note: "`git diff` で確認するのが速い" },
+        { path: "implementations/*/status.json", note: "unit 単位の完了状態" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs stage --feature ${feature}`
+    }),
+    staged: () => ({
+      what: "operations.json を目視し、問題なければ apply",
+      files: [
+        { path: "operations/*/operations.json", note: "📌 changedPaths を目視（apply 前の唯一の human gate）" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs apply --feature ${feature}`
+    }),
+    applied: () => ({
+      what: "verify-command を回して green を確認",
+      files: [
+        { path: "apply-log.jsonl", note: "適用された applyTxnId と hash" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs verify --feature ${feature}`
+    }),
+    verified: () => ({
+      what: "検証 PASS なら impl-review、fail なら fix ループ",
+      files: [
+        { path: "verification/summary.json", note: "success / overallVerdict" },
+        { path: "verification/reports/*.md", note: "fail なら stdout/stderr" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs impl-review --feature ${feature} --reviewers 1`
+    }),
+    impl_reviewed: () => ({
+      what: "aggregate と個別 verdict を確認、approve-impl に進む",
+      files: [
+        { path: `reviews/impl/iteration-${implIter}/aggregate.json`, note: "verdict / conditional を確認" },
+        { path: `reviews/impl/iteration-${implIter}/reviewer-*/verdict.json`, note: "RED/YELLOW の根拠" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs approve-impl --feature ${feature} --by <you> [--accept-risk "<reason>"]`
+    }),
+    fix_required: () => ({
+      what: "orphan cluster を承認してから fixer を起動",
+      files: [
+        { path: "fixes/orphan/*/cluster.json", note: "修正 cluster の scope" },
+        { path: "fixes/orphan/*/resolution.json", note: "approval 待ちかどうか" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs fix --feature ${feature}`
+    }),
+    blocked: () => ({
+      what: "自動修復が尽きている。plan に戻るか orphan approve する",
+      files: [
+        { path: "fixes/orphan/*/resolution.json", note: "blocked 要因" },
+        { path: `reviews/impl/iteration-${implIter}/aggregate.json`, note: "直近の RED findings" }
+      ],
+      next: `node scripts/cli/mavsdd.mjs status --feature ${feature}`
+    }),
+    done: () => ({
+      what: "feature 完了。監査ログを確認して終了",
+      files: [
+        { path: "human-approvals.jsonl", note: "全 approve の監査ログ（accept-risk 含む）" }
+      ],
+      next: "(feature complete — no next command)"
+    })
+  };
+
+  const recipeFn = recipes[phase];
+  const recipe = typeof recipeFn === "function"
+    ? recipeFn()
+    : { what: `現在の phase \`${phase}\` に対応する recipe 未定義`, files: [], next: `node scripts/cli/mavsdd.mjs status --feature ${feature}` };
+
+  const filesSection = recipe.files.length
+    ? recipe.files
+        .map((entry) => `- [\`${entry.path}\`](./${entry.path}) — ${entry.note}`)
+        .join("\n")
+    : "_(no specific files to read at this phase)_";
+
+  return [
+    `**Do**: ${recipe.what}`,
+    "",
+    "**Open**:",
+    "",
+    filesSection,
+    "",
+    "**Then run**:",
+    "",
+    "```bash",
+    recipe.next,
+    "```"
+  ].join("\n");
+}
+
+function renderRecentEvents(repoRoot, feature) {
+  try {
+    const logPath = runMetadataPath(repoRoot, feature);
+    if (!fsSync.existsSync(logPath)) return "_(no events yet)_";
+    const body = fsSync.readFileSync(logPath, "utf8");
+    const lines = body.split(/\n+/).filter(Boolean);
+    const recent = lines.slice(-5).reverse();
+    return recent
+      .map((line) => {
+        try {
+          const entry = JSON.parse(line);
+          const ts = entry.createdAt || entry.ts || "?";
+          const cmd = entry.command || entry.event || "?";
+          const status = entry.status || "";
+          return `- \`${ts}\` **${cmd}** ${status}`;
+        } catch {
+          return `- ${line.slice(0, 80)}`;
+        }
+      })
+      .join("\n");
+  } catch {
+    return "_(could not read events.jsonl)_";
+  }
 }
 
 async function appendTraceability(repoRoot, feature, entry) {
