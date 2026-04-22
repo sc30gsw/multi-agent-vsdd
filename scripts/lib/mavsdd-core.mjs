@@ -812,6 +812,7 @@ function isTeamRequiredPhase(phase) {
 
 export async function generatePlanArtifacts(repoRoot, feature, options = {}) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "plan");
   if (options.goal) {
     state.goal = options.goal;
   }
@@ -1183,6 +1184,7 @@ function renderUnitBrief(state, unit) {
 
 export async function generateRedArtifacts(repoRoot, feature) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "red", ["plan_approved"]);
   const root = featureRoot(repoRoot, feature);
   const redArtifacts = {
     feature,
@@ -1296,6 +1298,8 @@ async function copyTree(source, destination) {
 }
 
 export async function runClaudeImplementation(repoRoot, feature) {
+  const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "implement");
   try {
     ensureAgentTeamsPreflight(repoRoot);
     ensureClaudePreflight(repoRoot);
@@ -1319,7 +1323,10 @@ export async function runClaudeImplementation(repoRoot, feature) {
     detail: { feature, step: "materialize" }
   });
   process.stderr.write(`[mavsdd] implement: materializing workspace for ${feature}...\n`);
-  const { state, root, repoDir } = await materializeWorkspaces(repoRoot, feature);
+  const materialize = await materializeWorkspaces(repoRoot, feature);
+  const root = materialize.root;
+  const repoDir = materialize.repoDir;
+  Object.assign(state, materialize.state);
   process.stderr.write(`[mavsdd] implement: spawning Claude agent team for ${feature}...\n`);
   await appendRunMetadata(repoRoot, feature, {
     command: "implement",
@@ -1915,6 +1922,7 @@ export async function runVerification(repoRoot, feature) {
 
 export async function runReview(repoRoot, feature, scope, options = {}) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, `${scope}-review`);
   try {
     ensureCodexPreflight(repoRoot);
   } catch (error) {
@@ -2222,6 +2230,7 @@ function syntheticVerdict(verdict, title, detail, artifact) {
 
 export async function aggregateReviews(repoRoot, feature, scope) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, `aggregate:${scope}`);
   const root = featureRoot(repoRoot, feature);
   const iteration = state.reviewIterations[scope];
   if (!iteration) {
@@ -2310,6 +2319,7 @@ export async function aggregateReviews(repoRoot, feature, scope) {
 
 export async function recordApproval(repoRoot, feature, type, options = {}) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, `approve-${type}`);
   const root = featureRoot(repoRoot, feature);
   const scope = type === "plan" ? "plan" : "impl";
   const iteration = state.reviewIterations[scope];
@@ -2435,6 +2445,7 @@ export async function approveOrphanCluster(repoRoot, feature, options = {}) {
   }
 
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "approve-orphan");
   const root = featureRoot(repoRoot, feature);
   const resolutionPath = path.join(root, "fixes/orphan", clusterId, "resolution.json");
   const resolution = await readJson(resolutionPath);
@@ -2521,6 +2532,7 @@ export async function approveOrphanCluster(repoRoot, feature, options = {}) {
 
 export async function prepareFixes(repoRoot, feature) {
   const state = await loadState(repoRoot, feature);
+  ensureCommandEntryPhase(state, "fix");
   const root = featureRoot(repoRoot, feature);
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
   const iteration = state.reviewIterations.impl;

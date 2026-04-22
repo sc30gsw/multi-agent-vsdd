@@ -32,6 +32,7 @@ test("init, plan, red, and resume create the expected runtime state", async () =
   await generatePlanArtifacts(repoRoot, "sample-feature", {
     goal: "Add describeRange and sumRange"
   });
+  await mockPlanApproval(repoRoot, "sample-feature");
   await generateRedArtifacts(repoRoot, "sample-feature");
 
   const status = await statusSummary(repoRoot, "sample-feature");
@@ -283,6 +284,34 @@ test("prepareFixes excludes review_meta findings from actionable clusters", asyn
 
 async function makeTempRepo() {
   return fs.mkdtemp(path.join(os.tmpdir(), "mavsdd-"));
+}
+
+async function mockPlanApproval(repoRoot, feature) {
+  const iterationDir = path.join(
+    repoRoot,
+    `.mavsdd/features/${feature}/reviews/plan/iteration-1`
+  );
+  await fs.mkdir(iterationDir, { recursive: true });
+  await writeJson(path.join(iterationDir, "manifest.json"), {
+    feature,
+    scope: "plan",
+    iteration: 1,
+    artifactsToReview: []
+  });
+  await writeJson(path.join(iterationDir, "aggregate.json"), {
+    feature,
+    scope: "plan",
+    iteration: 1,
+    verdict: "GREEN",
+    coverageComplete: true,
+    findings: [],
+    counts: { GREEN: 1, YELLOW: 0, RED: 0 }
+  });
+  const statePath = path.join(repoRoot, `.mavsdd/features/${feature}/feature-state.json`);
+  const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+  state.reviewIterations.plan = 1;
+  await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  await recordApproval(repoRoot, feature, "plan", { by: "tester" });
 }
 
 async function createSampleTarget(repoRoot) {
