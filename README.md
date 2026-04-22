@@ -32,7 +32,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 ## Installation
 
-```
+```bash
 # Claude Code 上で
 /plugin marketplace add sc30gsw/multi-agent-vsdd
 /plugin install multi-agent-vsdd@mavsdd
@@ -59,32 +59,62 @@ init → plan → plan-review → aggregate → approve-plan
 
 各 CLI 出力に **`nextSteps.nextCommand` と `nextSteps.inspect[]`** が含まれるので、次に何をして何のファイルを見るかを毎回教えてくれます。
 
-## Which `.mavsdd/*` files should humans inspect?
+## `.mavsdd/features/<feature>/` 内部ガイド
 
-各 phase で **中身を読んで判断すべきファイル** の一覧です（`nextSteps.inspect[]` と同じもの）。
+> 正直に言うと、`.mavsdd/` の内部構造は細かいです。幸い **CLI が毎回 `nextSteps.inspect[]` で "今見るべきファイル" だけを教えてくれる**ので、まずそれに従ってください。このセクションは "CLI が何を見ろと言っているのか理解したい" ときの索引です。
 
-| Phase | 必ず読むもの | 目的 |
+### 3 つの視点
+
+1. **フォルダ役割一覧** — 各ディレクトリが何のために存在するか（保管庫のラベル）
+2. **必読（go/no-go）** — CLI が `inspect` に入れてくる "判断のために開く" 5 ファイル
+3. **深掘りが必要になったら** — RED や障害調査のときだけ見るファイル
+
+### (1) フォルダ役割一覧
+
+| ディレクトリ / ファイル | 役割 | 人間の出番 |
 |---|---|---|
-| `initialized` | `.mavsdd/features/<f>/feature-state.json` | target / verify-command / external auth 状態 |
-| `planned` | `plan.md`、`team-composition.json`、`specs/requirements-index.json`、`specs/verification-architecture.md`、`specs/test-strategy.md` | **scaffold だけなので user が要件を追記**してから plan-review に入る |
-| `plan_reviewed` | `reviews/plan/iteration-K/aggregate.json`、`reviews/plan/iteration-K/reviewer-*/verdict.json` | verdict と finding を精査 |
-| `plan_approved` | `human-approvals.jsonl`（末尾の `accept-risk` 含む） | 誰が何を根拠に承認したか |
-| `red` | `red/test-matrix.json`、`red/failing-tests.json` | 追加テストの一覧 |
-| `implemented` | `implementations/<unit>/status.json`、`workspace/repo/` の差分 | 実装ユニットの完了状態 |
-| `staged` | `operations/<unit>/operations.json` | **apply 前の最後の確認地点**。changedPaths / baseHash / newContent を目視 |
-| `applied` | `apply-log.jsonl` | 各 op の pre/post hash と applyTxnId |
-| `verified` | `verification/summary.json`、`verification/reports/<unit>.md` | verify-command の stdout/stderr |
-| `impl_reviewed` | `reviews/impl/iteration-K/aggregate.json`、`reviewer-*/verdict.json` | impl review の具体的 finding |
-| `fix_required` | `fixes/orphan/<cluster-id>/cluster.json`、`resolution.json` | 修正 cluster の scope |
-| `done` | `feature-state.json`、`human-approvals.jsonl` | 監査用の最終スナップショット |
+| **`plan.md`** | feature の真実の源（goal / target / verify-command / 要件メモ） | 📌 plan 後に編集 |
+| **`specs/`** | 要件・検証設計の scaffold（`requirements-index.json` / `verification-architecture.md` / `test-strategy.md` 等） | 📌 plan 後に編集 |
+| **`operations/<unit>/operations.json`** | apply 候補の diff（`changedPaths` / `baseHash` / `newContent`） | 📌 apply 前に目視 |
+| **`reviews/<scope>/iteration-K/`** | Codex/manual review の `aggregate.json` と `reviewer-*/verdict.json` | 📌 RED/YELLOW のとき開く |
+| **`verification/`** | `verify-command` の結果（`summary.json` / `reports/<unit>.md`） | 📌 fail のとき下りる |
+| **`fixes/orphan/<id>/`** | 修正 cluster の scope と resolution | 📌 fix_required のとき開く |
+| `feature-state.json` | 現在の phase / 承認状態 / review iteration 数 | CLI に任せる |
+| `contexts/` | Planner / Reviewer に渡す brief（`planner-brief.md` / `codex-rubric-*.md` / `unit-*.md`） | 通常触らない |
+| `red/` | failing test の定義（`test-matrix.json` / `failing-tests.json` / `red-phase.log`） | 通常触らない |
+| `implementations/<unit>/status.json` | 各 unit の実装完了状態 | `git diff workspace/repo/` の方が速い |
+| `workspace/base\|repo\|runtime/` | implementer 作業コピー（`.gitignore` 済） | 通常触らない |
+| `traceability/` | 要件 ↔ 実装のコントラクト追跡（`coverage-matrix.json` / `contract-chain.jsonl`） | 通常触らない |
+| `team-runtime/` | Claude Agent Team の生の入出力（`claude-*-raw-response.json` / `task-ledger.jsonl`） | 障害調査用 |
+| `run-metadata/events.jsonl` | 全 CLI 実行の append-only 追跡（policy deny 含む） | 監査 / trouble-shoot |
+| `human-approvals.jsonl` | approve-plan / approve-impl の全記録（`--accept-risk` 含む） | 監査 |
+| `apply-log.jsonl` | apply の pre/post hash と `applyTxnId` | 監査 / `baseHash mismatch` 時 |
 
-### 監査目的で常に `tail -f` しておくと便利
+### (2) 必読ファイル（go/no-go の判断だけならこの 5 つ）
+
+| Phase | 開くファイル | 判断する内容 |
+|---|---|---|
+| `planned` | `plan.md` + `specs/requirements-index.json` + `specs/verification-architecture.md` + `specs/test-strategy.md` | **scaffold を user が書き足す**（唯一「複数ファイル必読」の phase） |
+| `plan_reviewed` / `impl_reviewed` | `reviews/<scope>/iteration-K/aggregate.json` | `verdict` と `conditional` の値。RED/YELLOW なら `reviewer-*/verdict.json` に下りる |
+| `staged` | `operations/<unit>/operations.json` | **apply 直前の唯一の human gate**。`changedPaths[]` を目視 |
+| `verified` | `verification/summary.json` | `success: true/false`。fail なら `verification/reports/<unit>.md` に下りる |
+| `fix_required` | `fixes/orphan/<cluster-id>/cluster.json` ＋ `resolution.json` | 修正 cluster の scope と approval 状態 |
+
+**このテーブルを暗記する必要はない** — `nextSteps.inspect[]` に毎回入っています。
+
+### (3) 深掘りが必要になったら
+
+- **apply が `baseHash mismatch` で落ちた** → `apply-log.jsonl` で直近の applyTxnId を確認 → `operations/<unit>/operations.json` で `baseHash` を再生成
+- **verify が RED** → `verification/reports/<unit>.md` で stdout/stderr を読む
+- **review が RED で理由が不明** → `reviews/<scope>/iteration-K/reviewer-*/verdict.raw.json` で生の Codex 応答を確認
+- **何が動いているか分からない** → `tail -f run-metadata/events.jsonl` で全実行を stream
+- **implement / fix の出力が空** → `team-runtime/claude-*-raw-response.json` で stderr / exit code を確認
+- **承認チェーンを辿りたい** → `human-approvals.jsonl`（各エントリに manifestHash / aggregateHash / acceptRisk）
 
 ```bash
+# 平時の "全体監視" は 1 コマンドで足りる
 tail -f .mavsdd/features/<feature>/run-metadata/events.jsonl
 ```
-
-全 CLI 実行が `eventId` 付きで append-only 記録されます（init / plan / aggregate / approve-* / apply / verify / fix 等、policy deny も含む）。
 
 ## Claude-only workflow（Codex 無しで回す）
 
