@@ -1286,7 +1286,21 @@ export async function runClaudeImplementation(repoRoot, feature) {
     });
     throw error;
   }
+  await appendRunMetadata(repoRoot, feature, {
+    command: "implement",
+    kind: "model_invocation",
+    status: "started",
+    detail: { feature, step: "materialize" }
+  });
+  process.stderr.write(`[mavsdd] implement: materializing workspace for ${feature}...\n`);
   const { state, root, repoDir } = await materializeWorkspaces(repoRoot, feature);
+  process.stderr.write(`[mavsdd] implement: spawning Claude agent team for ${feature}...\n`);
+  await appendRunMetadata(repoRoot, feature, {
+    command: "implement",
+    kind: "model_invocation",
+    status: "started",
+    detail: { feature, step: "spawn_agent_team" }
+  });
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
   const agents = {
     "sample-logic": {
@@ -1404,25 +1418,40 @@ export async function runClaudeImplementation(repoRoot, feature) {
   });
 
   let parsed = null;
+  let parseError = null;
   try {
     parsed = JSON.parse(extractClaudeJson(result.stdout));
     await writeJson(responsePath, parsed);
   } catch (error) {
-    throw new Error(`Failed to parse Claude implementation response: ${error.message}`);
+    parseError = error;
   }
 
-  if (result.status !== 0 || !parsed.testsPassed) {
+  if (parseError || result.status !== 0 || !parsed?.testsPassed) {
+    const failureSummary = parseError
+      ? `failed to parse response: ${parseError.message}`
+      : result.status !== 0
+        ? `claude exit code ${result.status}`
+        : "agent reported testsPassed=false";
     await appendRunMetadata(repoRoot, feature, {
       command: "implement",
       kind: "model_invocation",
       status: "failed",
+      policyDecision: "fail_closed",
+      policyReason: failureSummary,
       detail: {
         feature,
+        exitCode: result.status,
         stderr: result.stderr,
-        stdout: result.stdout
+        stdout: result.stdout,
+        rawResponsePath: rawPath
       }
     });
-    throw new Error(`Claude implementation failed: ${result.stderr || result.stdout}`);
+    process.stderr.write(
+      `[mavsdd] implement: ${failureSummary}. See ${rawPath} for full agent output.\n`
+    );
+    throw new Error(
+      `Claude implementation failed: ${failureSummary}. Details written to ${rawPath}`
+    );
   }
 
   for (const unit of teamComposition.units) {

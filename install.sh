@@ -21,12 +21,16 @@ require_cmd() {
 }
 
 validate_plugin() {
-  if command -v claude >/dev/null 2>&1; then
-    log "validating plugin manifest"
-    claude plugins validate "$HERE"
-  else
-    log "skipping claude plugins validate (claude CLI not found)"
+  if ! command -v claude >/dev/null 2>&1; then
+    log "skipping plugin validate (claude CLI not found)"
+    return 0
   fi
+  log "validating plugin and marketplace manifests"
+  if claude plugin validate "$HERE" 2>/dev/null; then
+    return 0
+  fi
+  log "claude plugin validate failed; retrying with legacy 'claude plugins validate'"
+  claude plugins validate "$HERE"
 }
 
 check_agent_teams_flag() {
@@ -64,21 +68,34 @@ print_next_steps() {
 
 [mavsdd] Plugin directory: $HERE
 [mavsdd] Plugin name:      $PLUGIN_NAME
+[mavsdd] Marketplace name: mavsdd
 
 Next steps:
 
   1. Make sure CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 is exported (see above).
-  2. In Claude Code: /plugin, then install this directory or add it to a marketplace.
-  3. Smoke test the CLI:
 
-       node $HERE/scripts/cli/mavsdd.mjs status --feature sample-e2e
+  2. Install via the bundled marketplace (recommended):
 
-  4. Start a new feature:
+       In Claude Code:
+         /plugin marketplace add $HERE
+         /plugin install multi-agent-vsdd@mavsdd
 
-       /mavsdd-init <feature-name>
-       /mavsdd-plan "<one-sentence goal>"
+       Or against the published GitHub repo:
+         /plugin marketplace add sc30gsw/multi-agent-vsdd
+         /plugin install multi-agent-vsdd@mavsdd
 
-  The threat model (README.md §Threat Model) is important reading before
+     Restart the Claude Code session after install so SessionStart hooks load.
+
+  3. Smoke test the CLI directly (works in any cwd):
+
+       node "$HERE/scripts/cli/mavsdd.mjs" status --feature sample-feature
+
+  4. Start a new feature (cd to your target repo first):
+
+       /mavsdd-init    # SKILL body uses \${CLAUDE_PLUGIN_ROOT}
+       /mavsdd-plan
+
+  The Threat Model section of README.md is important reading before
   running /mavsdd-apply on a repo you care about.
 EOF
 }

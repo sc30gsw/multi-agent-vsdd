@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_DIR}/scripts/hooks/run-with-flags-strict.js\" mavsdd-path-phase-gate"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/run-with-flags-strict.js\" mavsdd-path-phase-gate"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_DIR}/scripts/hooks/run-with-flags-strict.js\" mavsdd-promote-and-sentinel"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/run-with-flags-strict.js\" mavsdd-promote-and-sentinel"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_DIR}/scripts/hooks/run-with-flags-strict.js\" mavsdd-load-active"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/run-with-flags-strict.js\" mavsdd-load-active"
           }
         ]
       }

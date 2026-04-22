@@ -1,0 +1,33 @@
+{
+  "name": "mavsdd",
+  "owner": {
+    "name": "sc30gsw",
+    "url": "https://github.com/sc30gsw"
+  },
+  "metadata": {
+    "description": "Multi-Agent VSDD: disk-first plan/review/implement/verify loop for Claude Code with Codex jury reviews",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "multi-agent-vsdd",
+      "source": "./",
+      "description": "Disk-first VSDD harness: persists plans, reviews, workspaces, and verification state under .mavsdd/, with Agent Teams implement/fix and Codex plan/impl reviews.",
+      "homepage": "https://github.com/sc30gsw/multi-agent-vsdd",
+      "repository": "https://github.com/sc30gsw/multi-agent-vsdd",
+      "license": "MIT",
+      "author": {
+        "name": "sc30gsw"
+      },
+      "category": "Coding",
+      "keywords": [
+        "vsdd",
+        "claude-code",
+        "codex",
+        "agent-teams",
+        "verification",
+        "multi-agent"
+      ]
+    }
+  ]
+}
