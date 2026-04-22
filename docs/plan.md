@@ -23,13 +23,19 @@ Codex reviewer は adversarial なので全員 GREEN になることはほぼ無
 - `/mavsdd-approve-impl`（および `approve-plan`）は `conditional === true` のとき **`--accept-risk "<reason>"` の明示**を要求する。`human-approvals.jsonl` にそのまま記録する
 - **default reviewer 数は 3**（2/3 quorum が意味を持つ最小構成）。`--reviewers 1` は demo / debug 用の escape hatch
 
-### 0.3 Reviewer backend は Codex 既定 + `--backend mock` fallback
+### 0.3 Reviewer backend は `codex | claude | mock` の 3 種
 
-Codex は契約 / quota 次第で利用できない user がいる。v1 は `/mavsdd-plan-review` / `/mavsdd-impl-review` に `--backend codex|mock` flag を持つ:
+Codex は契約 / quota 次第で利用できない user がいる。v1 は `/mavsdd-plan-review` / `/mavsdd-impl-review` に `--backend codex|claude|mock` flag を持つ。**Codex が使えない、または user が明示 opt-out したとき、real LLM reviewer として Claude Code Opus 4.7 xhigh を使う**（これが主 fallback — mock は最後の手段）。
 
-- `codex`（default）— `codex exec --model gpt-5.4 --sandbox read-only` で adversarial review を回す
-- `mock` — 人間が verdict を注入する代替経路。CLI は N 体分の `verdict.json` を synth、各 verdict に **`meta.source: "human-mock"` / `meta.reason` / `meta.reviewedBy` / `meta.reviewedAt`** を埋め込んで audit trail を保持。`run-metadata/events.jsonl` にも `provider: "human-mock"` で記録
-- `agent-team` backend（Claude Agent Team で review 代替）は v1.1 で追加予定
+- **`codex`**（default）— `codex exec --model gpt-5.4 --sandbox read-only` で adversarial review を回す
+- **`claude`** — **Claude Opus 4.7 xhigh を real reviewer として起動**。N 体分並列ではなくシーケンシャル spawn（同一 CLI セッション共有を避ける）。`claude -p --model opus --permission-mode bypassPermissions --agents '{"mavsdd-reviewer":{"model":"opus","effort":"xhigh","prompt":"..."}}' -` を reviewer 数ぶん呼ぶ。verdict は `.mavsdd/features/<f>/reviews/<scope>/iteration-<K>/reviewer-<N>/verdict.json` に、raw は `raw-response.json` に残す。`meta.source: "claude-reviewer"`, `meta.model: "opus"`, `meta.effort: "xhigh"` を埋め込む
+- **`mock`** — 人間が verdict を注入する **最後の手段**。CLI は N 体分の `verdict.json` を synth、各 verdict に `meta.source: "human-mock"` / `meta.reason` / `meta.reviewedBy` / `meta.reviewedAt` を埋め込む。Codex も Claude も走らせないので audit trail に「review 意図的スキップ」として残る
+
+実装要件:
+
+- `claude` backend は `ensureClaudePreflight` + `ensureAgentTeamsPreflight` で `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` を検証する
+- Codex preflight 失敗時は **自動 fallback せず**、エラーメッセージに `--backend claude` / `--backend mock` を明示するリダイレクトを添えて fail（意図しない provider 切替を防ぐ）
+- `mock` は今後も skill の allow-list に残すが、`--backend claude` が第一選択
 
 ### 0.4 Plan scaffold は minimal、ハードコード REQ を撤廃
 
@@ -120,23 +126,25 @@ operator が `.mavsdd/` 配下のどの json / md を開けばよいか毎回頭
 - README には phase → 開くファイルの公式対応表を記載するが、**operator が暗記する必要は無い** — INDEX.md が毎回差し替えて教える
 - README には **"一番先に開くのは `.mavsdd/features/<feature>/INDEX.md`"** と明示する
 
-### 0.9 Claude-only 運用経路（Codex 非依存、`--backend mock`）
+### 0.9 Claude-only 運用経路（Codex 非依存、`--backend claude`）
 
-`/mavsdd-plan-review` / `/mavsdd-impl-review` **以外**は Codex を必要としない。Codex が未導入 / quota 切れのときは、fish で `verdict.json` を手書きする代わりに **同じ skill に `--backend mock`** を渡す。
+`/mavsdd-plan-review` / `/mavsdd-impl-review` **以外**は Codex を必要としない。Codex が未導入 / quota 切れのとき、または user が明示的に Codex を使わない意図のときは、**同じ skill に `--backend claude`** を渡すと **Claude Opus 4.7 xhigh が real reviewer として起動**する。
 
 ```
-/mavsdd-plan-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "Codex unavailable" --by "<name>"
-/mavsdd-impl-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "Codex unavailable" --by "<name>"
+/mavsdd-plan-review --feature <f> --reviewers 3 --backend claude
+/mavsdd-impl-review --feature <f> --reviewers 3 --backend claude
 ```
 
 効果:
 
-- N 体分の `reviewer-*/verdict.json` を一括生成
-- 各 verdict に `meta: {source:"human-mock", reason, reviewedBy, reviewedAt, backend:"mock"}` を埋め込む（audit 可能、codex 経路の verdict と一目で区別できる）
-- `run-metadata/events.jsonl` に `provider:"human-mock"` / `kind:"model_invocation"` を append
+- reviewer 1..N ごとに `claude -p --model opus --permission-mode bypassPermissions --agents '{mavsdd-reviewer}'` を spawn
+- 各 reviewer が artifacts と rubric を読み、verdict JSON を `reviews/<scope>/iteration-<K>/reviewer-<N>/verdict.json` に Write
+- `raw-response.json` に Claude の stdout/stderr/status/timeoutMs を audit 用に保存
+- verdict に `meta: {source:"claude-reviewer", model:"opus", effort:"xhigh", backend:"claude"}` が入る（codex verdict と 1 目で区別）
+- `run-metadata/events.jsonl` に `provider:"anthropic-claude-code"` / `resolvedModel:"opus"` / `resolvedEffort:"xhigh"` で記録
 - phase は real review と同じく `plan_reviewed` / `impl_reviewed` に遷移
 
-この経路でも `aggregate → approve-* → done` は通常通り通る。aggregate が `conditional: true` にならなくても、`approve-*` には `--accept-risk "Codex unavailable: human-mock"` を付けるのを **強く推奨**（`human-approvals.jsonl` に理由が残る）。
+**`--backend mock` は最後の手段**。review を意図的に skip する目的でのみ使う。`--accept-risk "reviewer unavailable"` を必須で付け、`human-approvals.jsonl` に明示残しを推奨。
 
 ### 0.10 Rubric は 3 軸（plan と impl で別軸）
 

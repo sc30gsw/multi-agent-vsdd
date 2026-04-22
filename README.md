@@ -28,7 +28,7 @@ Claude Code の Agent Teams と（optional で）Codex CLI を組み合わせ、
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 ```
 
-> Codex が入っていない / quota 切れの場合でも、`/mavsdd-plan-review` / `/mavsdd-impl-review` に `--backend mock` を付けるだけで人間署名付き verdict が注入されて続行可能です（後述 "Claude-only workflow"）。
+> Codex が入っていない / quota 切れの場合でも、`/mavsdd-plan-review` / `/mavsdd-impl-review` に `--backend claude` を付けるだけで **Claude Opus 4.7 xhigh が real reviewer として走り**、adversarial review がそのまま回せます（後述 "Claude-only workflow"）。
 
 ## Installation
 
@@ -166,19 +166,26 @@ VS Code / GitHub / Obsidian 等の Markdown プレビューで、`Open` セク�
 tail -f .mavsdd/features/<feature>/run-metadata/events.jsonl
 ```
 
-## Claude-only workflow（Codex 無しで回す）— `--backend mock`
+## Claude-only workflow（Codex 無しで回す）— `--backend claude`
 
-plan-review / impl-review 以外は Codex 不要です。review は **同じ skill に `--backend mock` フラグ**を渡すだけで、fish 手書きなしに N 体分の人間署名付き verdict が一括注入されます（plan §0.9）。
+Codex が使えない / quota 切れ / user が意図的に Codex を避けたいとき、**同じ skill に `--backend claude` を渡すだけで Claude Opus 4.7 xhigh が real reviewer として走ります**（plan §0.9）。
 
 ```
-/mavsdd-plan-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "Codex unavailable" --by <you>
+/mavsdd-plan-review --feature <f> --reviewers 3 --backend claude
 /mavsdd-aggregate --feature <f> --scope plan
-/mavsdd-approve-plan --feature <f> --by <you> --accept-risk "Codex unavailable: plan-review mocked"
+/mavsdd-approve-plan --feature <f> --by <you>
 ```
 
-各 `reviewer-*/verdict.json` に `meta.source: "human-mock"` / `meta.reason` / `meta.reviewedBy` / `meta.reviewedAt` が入り、Codex 経路との区別が 1 目で判ります。impl も同じパターン（`scope=impl`）。詳細は [`docs/DEMO.md`](./docs/DEMO.md) 参照。
+内部では reviewer ごとに `claude -p --model opus --agents '{mavsdd-reviewer}' -` が spawn され、各 reviewer が artifacts を読んで verdict JSON を Write します。verdict に `meta: {source:"claude-reviewer", model:"opus", effort:"xhigh"}` が入り、Codex 経路と 1 目で区別できます。impl も同じパターン（`scope=impl`）。詳細は [`docs/DEMO.md`](./docs/DEMO.md) 参照。
 
-Codex が戻ってきたら `--backend mock` を外すだけで adversarial review 経路に復帰します。
+### 最後の手段 — `--backend mock`
+
+reviewer（Codex も Claude も）を意図的に skip したいときだけ `--backend mock` を使います。verdict に `meta.source: "human-mock"` が入り、approve-* に `--accept-risk "<reason>"` を必須で付けて audit trail に残します。
+
+```
+/mavsdd-plan-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "intentional skip" --by <you>
+/mavsdd-approve-plan --feature <f> --by <you> --accept-risk "review intentionally skipped"
+```
 
 ## 2/3 quorum と human risk ack
 
@@ -206,7 +213,7 @@ Codex が戻ってきたら `--backend mock` を外すだけで adversarial revi
 |---|---|---|
 | `/mavsdd-init` | `init` | `--feature`, `--target`, `--verify-command` |
 | `/mavsdd-plan` | `plan` | `--feature`, `--goal` |
-| `/mavsdd-plan-review` | `plan-review` | `--feature`, `--reviewers`（default **3**）, `--backend codex\|mock`, `--verdict`, `--reason`, `--by`, `--timeout-ms` |
+| `/mavsdd-plan-review` | `plan-review` | `--feature`, `--reviewers`（default **3**）, `--backend codex\|claude\|mock`, `--verdict`, `--reason`, `--by`, `--timeout-ms` |
 | `/mavsdd-aggregate` | `aggregate` | `--feature`, `--scope plan\|impl` |
 | `/mavsdd-approve-plan` | `approve-plan` | `--feature`, `--by`, `--accept-risk` |
 | `/mavsdd-red` | `red` | `--feature` |
@@ -214,7 +221,7 @@ Codex が戻ってきたら `--backend mock` を外すだけで adversarial revi
 | `/mavsdd-stage` | `stage` | `--feature` |
 | `/mavsdd-apply` | `apply` | `--feature` |
 | `/mavsdd-verify` | `verify` | `--feature` |
-| `/mavsdd-impl-review` | `impl-review` | `--feature`, `--reviewers`（default **3**）, `--backend codex\|mock`, `--verdict`, `--reason`, `--by`, `--timeout-ms` |
+| `/mavsdd-impl-review` | `impl-review` | `--feature`, `--reviewers`（default **3**）, `--backend codex\|claude\|mock`, `--verdict`, `--reason`, `--by`, `--timeout-ms` |
 | `/mavsdd-approve-orphan` | `approve-orphan` | `--feature`, `--cluster-id`, `--verdict`, `--by` |
 | `/mavsdd-fix` | `fix` | `--feature` |
 | `/mavsdd-approve-impl` | `approve-impl` | `--feature`, `--by`, `--accept-risk` |
@@ -230,6 +237,7 @@ Codex が戻ってきたら `--backend mock` を外すだけで adversarial revi
 | `mavsdd-planner` | `opus` / `xhigh`（v2 で真に配線。v1 は scaffold のみ） | feature を 1-5 unit に分解し plan / team-composition を生成 |
 | `mavsdd-implementer` | `sonnet` | unit ごとに `workspace/repo/` で実装 |
 | `mavsdd-fixer` | `sonnet`（**single-agent**） | impl-review の finding cluster を 1 回で修正 |
+| `mavsdd-reviewer` | `opus` / `xhigh` | `--backend claude` で起動する adversarial reviewer。Codex 不在時の real LLM 代替 |
 | `mavsdd-aggregator` | `sonnet` | review verdict を deterministic に集約 |
 
 ### Hooks（`hooks/hooks.json`）
@@ -284,7 +292,7 @@ Codex が戻ってきたら `--backend mock` を外すだけで adversarial revi
 | 症状 | 対処 |
 |---|---|
 | `/mavsdd-implement` / `/mavsdd-fix` が 5 分以上応答しない | 前節「実行上の注意」。`MAVSDD_IMPLEMENT_TIMEOUT_MS=300000` で timeout を短めに試す |
-| `/mavsdd-plan-review` / `/mavsdd-impl-review` が失敗 | `codex login status` を確認。quota 切れなら `--backend mock` に切替（前述 "Claude-only workflow"） |
+| `/mavsdd-plan-review` / `/mavsdd-impl-review` が失敗 | `codex login status` を確認。Codex が不可なら `--backend claude`（Opus 4.7 xhigh real reviewer）に切替（前述 "Claude-only workflow"）。どうしても reviewer を skip したいなら `--backend mock` |
 | `approve-plan` / `approve-impl` が `requires --accept-risk` と言う | aggregate が `conditional: true`（2/3 GREEN 非 unanimous）。reason をつけて再実行 |
 | `/mavsdd-apply` が `baseHash mismatch` で止まる | target repo に手で変更が入っている。`/mavsdd-status` → rebase / restage |
 | `/mavsdd-*` が "command not found" | session 再起動。だめなら `/plugin marketplace update mavsdd` |

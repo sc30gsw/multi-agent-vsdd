@@ -2459,9 +2459,15 @@ export async function runVerification(repoRoot, feature) {
 export async function runReview(repoRoot, feature, scope, options = {}) {
   const state = await loadState(repoRoot, feature);
   ensureCommandEntryPhase(state, `${scope}-review`);
+  // plan §0.3: three explicit backends so the operator picks intent deliberately.
+  //   codex  — default, adversarial Codex gpt-5.4 jury
+  //   claude — Claude Opus 4.7 xhigh real reviewer (fallback when Codex is
+  //            unavailable, or when the operator wants to stay in-house)
+  //   mock   — last-resort human-signed dummy verdict (audit trail preserved)
   const backend = String(options.backend || "codex").toLowerCase();
-  if (backend !== "codex" && backend !== "mock") {
-    throw new Error(`unknown --backend "${backend}"; expected "codex" or "mock"`);
+  const allowedBackends = new Set(["codex", "claude", "mock"]);
+  if (!allowedBackends.has(backend)) {
+    throw new Error(`unknown --backend "${backend}"; expected "codex" | "claude" | "mock"`);
   }
   if (backend === "codex") {
     try {
@@ -2472,11 +2478,27 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
         kind: "model_invocation",
         status: "rejected",
         policyDecision: "deny",
-        policyReason: error.message,
+        policyReason: `${error.message}. Retry with --backend claude (Opus 4.7 xhigh) or --backend mock if Codex is unavailable.`,
         detail: {
           feature,
           scope
         }
+      });
+      throw new Error(`${error.message}\nRetry with --backend claude (Opus 4.7 xhigh) or --backend mock.`);
+    }
+  }
+  if (backend === "claude") {
+    try {
+      ensureClaudePreflight(repoRoot);
+      ensureAgentTeamsPreflight(repoRoot);
+    } catch (error) {
+      await appendRunMetadata(repoRoot, feature, {
+        command: scope === "plan" ? "plan-review" : "impl-review",
+        kind: "model_invocation",
+        status: "rejected",
+        policyDecision: "deny",
+        policyReason: error.message,
+        detail: { feature, scope }
       });
       throw error;
     }
@@ -2505,6 +2527,19 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
       iterationDir,
       iteration,
       reviewers,
+      options
+    });
+  }
+  if (backend === "claude") {
+    return await runClaudeReview({
+      repoRoot,
+      feature,
+      scope,
+      state,
+      iterationDir,
+      iteration,
+      reviewers,
+      teamComposition,
       options
     });
   }
@@ -2821,6 +2856,219 @@ async function runMockReview({ repoRoot, feature, scope, state, iterationDir, it
     reviewers,
     backend: "mock",
     verdict: verdictLabel
+  };
+}
+
+// plan §0.3: Claude Opus 4.7 xhigh real reviewer. Used when Codex is
+// unavailable (quota / login / network) or when the operator explicitly opts
+// in via --backend claude. Each reviewer spawns its own `claude -p` process
+// with the mavsdd-reviewer agent (opus / xhigh, Write-only to the inbox path).
+async function runClaudeReview({ repoRoot, feature, scope, state, iterationDir, iteration, reviewers, teamComposition, options }) {
+  const root = featureRoot(repoRoot, feature);
+  const reviewTimeoutMs = Number(options["timeout-ms"] || process.env.MAVSDD_REVIEW_TIMEOUT_MS || 20 * 60_000);
+
+  const artifacts = scope === "plan"
+    ? [
+        ...PLAN_ARTIFACTS,
+        ...teamComposition.units.map((unit) => unit.briefPath).filter(Boolean)
+      ]
+    : IMPL_ARTIFACTS.flatMap((item) => {
+        if (item === "operations") return gatherOperationArtifacts(root, teamComposition.units);
+        if (item === "implementations") return gatherImplementationArtifacts(root, teamComposition.units);
+        return [item];
+      });
+
+  const artifactPayload = {};
+  for (const relativePath of artifacts) {
+    const absolutePath = path.join(root, relativePath);
+    if (!(await pathExists(absolutePath))) continue;
+    const stat = await fs.stat(absolutePath);
+    if (stat.isDirectory()) continue;
+    artifactPayload[relativePath] = await fs.readFile(absolutePath, "utf8");
+  }
+
+  const digests = Object.fromEntries(
+    Object.entries(artifactPayload).map(([p, c]) => [
+      p,
+      { sha256: sha256Text(c), bytes: Buffer.byteLength(c) }
+    ])
+  );
+
+  const manifest = {
+    feature,
+    scope,
+    iteration,
+    snapshotId: `${scope}-iteration-${iteration}`,
+    generatedAt: nowIso(),
+    backend: "claude",
+    reviewers: Array.from({ length: reviewers }, (_, i) => String(i + 1)),
+    artifactsToReview: artifacts.map((p) => ({ path: p, source: "feature-root" }))
+  };
+
+  await ensureDir(iterationDir);
+  await writeJson(path.join(iterationDir, "manifest.json"), manifest);
+  await writeJson(path.join(iterationDir, "artifact-digests.json"), digests);
+  const schemaPath = path.join(iterationDir, "review-schema.json");
+  await writeJson(schemaPath, reviewSchema());
+
+  let hadFailures = false;
+
+  for (let reviewerIndex = 1; reviewerIndex <= reviewers; reviewerIndex += 1) {
+    const reviewerDir = path.join(iterationDir, `reviewer-${reviewerIndex}`);
+    await ensureDir(reviewerDir);
+
+    const rubricTemplate = scope === "plan"
+      ? path.join(repoRoot, "templates", "codex-rubric-plan.md")
+      : path.join(repoRoot, "templates", "codex-rubric-impl.md");
+    const rubric = (await pathExists(rubricTemplate))
+      ? await fs.readFile(rubricTemplate, "utf8")
+      : "(rubric template missing)";
+
+    const verdictAbs = path.resolve(path.join(reviewerDir, "verdict.json"));
+
+    const prompt = [
+      `You are reviewer-${reviewerIndex} of ${reviewers} for scope "${scope}" on feature "${feature}", iteration ${iteration}.`,
+      "You are adversarial. You have no context from other reviewers.",
+      "",
+      "## Rubric",
+      "",
+      rubric,
+      "",
+      "## Artifacts (already read for you, do not re-discover)",
+      "",
+      "```json",
+      JSON.stringify({ manifest, artifacts: artifactPayload }, null, 2).slice(0, 120_000),
+      "```",
+      "",
+      "## Task",
+      "",
+      `Write exactly one file — your verdict — to this absolute path using the Write tool:`,
+      "",
+      verdictAbs,
+      "",
+      "The verdict JSON must match schemas/mavsdd-verdict.schema.json. Set reviewerId to 'reviewer-" + reviewerIndex + "', scope to '" + scope + "', iteration to " + iteration + ".",
+      "Include `meta.source: \"claude-reviewer\"`, `meta.model: \"opus\"`, `meta.effort: \"xhigh\"`.",
+      "Cite every finding with filePath + lineRange. Prefer silence over filler.",
+      "",
+      "Do not edit, delete, or create any other file. Do not run tests. Do not touch the repo source.",
+      "",
+      "After writing the verdict file, finish your turn with a one-line confirmation: \"verdict written\"."
+    ].join("\n");
+    const promptPayloadHash = sha256Text(prompt);
+
+    await writeText(path.join(reviewerDir, "prompt.md"), prompt);
+
+    const agents = {
+      "mavsdd-reviewer": {
+        description: "Adversarial reviewer for mavsdd plan/impl artifacts.",
+        model: "opus",
+        effort: "xhigh",
+        prompt: "You are the mavsdd-reviewer. Write the verdict to the absolute path in the orchestrator prompt. Obey the rubric and schema strictly."
+      }
+    };
+
+    const args = [
+      "-p",
+      "--model", "opus",
+      "--permission-mode", "bypassPermissions",
+      "--agents", JSON.stringify(agents),
+      "-"
+    ];
+
+    const result = runProcess("claude", args, {
+      cwd: repoRoot,
+      input: prompt,
+      env: { ...process.env, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" },
+      timeoutMs: reviewTimeoutMs
+    });
+
+    await writeJson(path.join(reviewerDir, "raw-response.json"), {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      timedOut: result.timedOut,
+      promptPayloadHash,
+      backend: "claude",
+      model: "opus",
+      effort: "xhigh"
+    });
+
+    const verdictPath = path.join(reviewerDir, "verdict.json");
+    let verdict = null;
+    if (result.status === 0 && (await pathExists(verdictPath))) {
+      try {
+        verdict = JSON.parse(await fs.readFile(verdictPath, "utf8"));
+      } catch (error) {
+        hadFailures = true;
+        verdict = syntheticVerdict(
+          "RED",
+          "Claude reviewer emitted unparseable JSON",
+          `${error.message}\n${result.stdout || ""}`,
+          "runtime"
+        );
+        await writeJson(verdictPath, verdict);
+      }
+    } else {
+      hadFailures = true;
+      verdict = syntheticVerdict(
+        "RED",
+        "Claude reviewer failed to produce a verdict",
+        `${result.stderr || result.stdout || "No verdict written."}`,
+        "runtime"
+      );
+      await writeJson(verdictPath, verdict);
+    }
+
+    if (verdict && (!verdict.meta || verdict.meta.source === undefined)) {
+      verdict.meta = {
+        ...(verdict.meta || {}),
+        source: verdict.meta?.source || "claude-reviewer",
+        model: "opus",
+        effort: "xhigh",
+        backend: "claude"
+      };
+      await writeJson(verdictPath, verdict);
+    }
+
+    if (result.status === 0) {
+      await writeText(path.join(reviewerDir, ".ready"), `${nowIso()}\n`);
+    }
+  }
+
+  state.reviewIterations[scope] = iteration;
+  state.phase = scope === "plan" ? "plan_reviewed" : "impl_reviewed";
+  await saveState(repoRoot, feature, state);
+  await appendRunMetadata(repoRoot, feature, {
+    command: scope === "plan" ? "plan-review" : "impl-review",
+    kind: "model_invocation",
+    status: hadFailures ? "failed" : "completed",
+    provider: "anthropic-claude-code",
+    requestedModel: "opus",
+    resolvedModel: "opus",
+    requestedEffort: "xhigh",
+    resolvedEffort: "xhigh",
+    detail: {
+      feature,
+      scope,
+      iteration,
+      reviewers,
+      backend: "claude",
+      timeoutMs: reviewTimeoutMs
+    }
+  });
+
+  if (hadFailures) {
+    throw new Error(`Claude review failed for ${scope}. See ${path.relative(repoRoot, iterationDir)}.`);
+  }
+
+  return {
+    feature,
+    scope,
+    iteration,
+    reviewers,
+    backend: "claude",
+    model: "opus",
+    effort: "xhigh"
   };
 }
 
