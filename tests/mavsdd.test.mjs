@@ -26,7 +26,7 @@ test("init, plan, red, and resume create the expected runtime state", async () =
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
   await createFeatureState(repoRoot, "sample-feature", {
-    target: "sample/xxx-app",
+    target: "sample/sample-app",
     "verify-command": "npm test"
   });
   await generatePlanArtifacts(repoRoot, "sample-feature", {
@@ -39,7 +39,7 @@ test("init, plan, red, and resume create the expected runtime state", async () =
   const resume = await resumeSummary(repoRoot, "sample-feature");
 
   assert.equal(status.phase, "red");
-  assert.equal(status.targetRepo, "sample/xxx-app");
+  assert.equal(status.targetRepo, "sample/sample-app");
   assert.match(resume.nextCommand, /implement/);
   assert.equal(
     JSON.parse(
@@ -48,7 +48,7 @@ test("init, plan, red, and resume create the expected runtime state", async () =
         "utf8"
       )
     ).requirements.length,
-    7
+    11
   );
 });
 
@@ -56,7 +56,7 @@ test("stage, apply, verify, and aggregate remain deterministic", async () => {
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
   await createFeatureState(repoRoot, "sample-feature", {
-    target: "sample/xxx-app",
+    target: "sample/sample-app",
     "verify-command": "npm test"
   });
   await generatePlanArtifacts(repoRoot, "sample-feature");
@@ -153,7 +153,7 @@ test("orphan approval creates a patch overlay for temporary units", async () => 
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
   await createFeatureState(repoRoot, "sample-feature", {
-    target: "sample/xxx-app",
+    target: "sample/sample-app",
     "verify-command": "npm test"
   });
   await generatePlanArtifacts(repoRoot, "sample-feature");
@@ -210,7 +210,7 @@ test("resume ignores obsolete plan reviewer jobs after verification", async () =
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
   await createFeatureState(repoRoot, "sample-feature", {
-    target: "sample/xxx-app",
+    target: "sample/sample-app",
     "verify-command": "npm test"
   });
   await generatePlanArtifacts(repoRoot, "sample-feature");
@@ -239,7 +239,7 @@ test("prepareFixes excludes review_meta findings from actionable clusters", asyn
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
   await createFeatureState(repoRoot, "sample-feature", {
-    target: "sample/xxx-app",
+    target: "sample/sample-app",
     "verify-command": "npm test"
   });
   await generatePlanArtifacts(repoRoot, "sample-feature");
@@ -315,7 +315,7 @@ async function mockPlanApproval(repoRoot, feature) {
 }
 
 async function createSampleTarget(repoRoot) {
-  const targetRoot = path.join(repoRoot, "sample/xxx-app");
+  const targetRoot = path.join(repoRoot, "sample/sample-app");
   await fs.mkdir(path.join(targetRoot, "src"), { recursive: true });
   await fs.mkdir(path.join(targetRoot, "tests"), { recursive: true });
 
@@ -323,7 +323,7 @@ async function createSampleTarget(repoRoot) {
     path.join(targetRoot, "package.json"),
     JSON.stringify(
       {
-        name: "xxx-app",
+        name: "sample-app",
         private: true,
         type: "module",
         scripts: {

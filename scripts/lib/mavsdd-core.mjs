@@ -115,6 +115,7 @@ const PLAN_ARTIFACTS = [
   "specs/requirements-index.json",
   "specs/verification-architecture.md",
   "specs/test-strategy.md",
+  "specs/reuse-evidence.md",
   "specs/convergence-checklist.md",
   "team-composition.json",
   "contexts/planner-brief.md",
@@ -845,6 +846,7 @@ export async function generatePlanArtifacts(repoRoot, feature, options = {}) {
     renderVerificationArchitecture(state)
   );
   await writeText(path.join(root, "specs/test-strategy.md"), renderTestStrategy(state));
+  await writeText(path.join(root, "specs/reuse-evidence.md"), renderReuseEvidenceTemplate(state));
   await writeText(
     path.join(root, "specs/convergence-checklist.md"),
     renderConvergenceChecklist(
@@ -921,11 +923,39 @@ export async function generatePlanArtifacts(repoRoot, feature, options = {}) {
 function buildRequirements(state) {
   return [
     {
-      id: "REQ-1",
-      title: "Preserve exact validation contract",
+      id: "REQ-1a",
+      title: "sumRange rejects non-integer start",
       summary:
-        "New helpers must preserve exact TypeError/RangeError behavior and messages for invalid input.",
-      units: ["sample-logic"]
+        "sumRange(start,end) must throw TypeError('start must be an integer') when start is not an integer.",
+      units: ["sample-logic", "sample-tests"]
+    },
+    {
+      id: "REQ-1b",
+      title: "sumRange rejects non-integer end",
+      summary:
+        "sumRange(start,end) must throw TypeError('end must be an integer') when end is not an integer.",
+      units: ["sample-logic", "sample-tests"]
+    },
+    {
+      id: "REQ-1c",
+      title: "describeRange rejects non-integer start",
+      summary:
+        "describeRange(start,end) must throw TypeError('start must be an integer') when start is not an integer.",
+      units: ["sample-logic", "sample-tests"]
+    },
+    {
+      id: "REQ-1d",
+      title: "describeRange rejects non-integer end",
+      summary:
+        "describeRange(start,end) must throw TypeError('end must be an integer') when end is not an integer.",
+      units: ["sample-logic", "sample-tests"]
+    },
+    {
+      id: "REQ-1e",
+      title: "Both helpers reject descending ranges",
+      summary:
+        "sumRange and describeRange must both throw RangeError('start must be less than or equal to end') when start > end.",
+      units: ["sample-logic", "sample-tests"]
     },
     {
       id: "REQ-2",
@@ -944,28 +974,28 @@ function buildRequirements(state) {
       id: "REQ-4",
       title: "Representative sumRange cases",
       summary:
-        "Verification must cover at least one single-point and one zero-crossing or negative range for sumRange.",
+        "Verification must cover BOTH a single-point (sumRange(7,7)===7) AND a zero-crossing range (sumRange(-2,2)===0) for sumRange.",
       units: ["sample-tests"]
     },
     {
       id: "REQ-5",
       title: "Representative describeRange cases",
       summary:
-        "Verification must cover single-point, zero-crossing or negative ranges, and at least one case with a fractional average.",
+        "Verification must cover single-point, zero-crossing or negative, AND a fractional-average case (e.g. describeRange(0,1).average===0.5) for describeRange.",
       units: ["sample-tests"]
     },
     {
       id: "REQ-6",
       title: "Export from index",
-      summary: "Export the new range helpers from src/index.js.",
-      units: ["sample-logic"]
+      summary: "Export the new range helpers from src/index.js and cover the import in at least one test.",
+      units: ["sample-logic", "sample-tests"]
     },
     {
       id: "REQ-7",
-      title: "Cover with tests and static reuse review",
+      title: "Static reuse audit recorded",
       summary:
-        "Add node:test coverage for valid cases plus start-invalid, end-invalid, and descending range failures with exact error expectations, and record static review evidence that the new helpers reuse normalizeRange/listRange/sum.",
-      units: ["sample-tests", "sample-logic"]
+        "Before impl-review can return GREEN, specs/reuse-evidence.md must be filled in confirming the new helpers delegate to normalizeRange/listRange/sum instead of duplicating range math.",
+      units: ["sample-logic", "sample-tests"]
     }
   ];
 }
@@ -1073,21 +1103,55 @@ function renderVerificationArchitecture(state) {
     "# Verification Architecture",
     "",
     `- Live target: \`${state.targetRepoRelative}\``,
-    "- Workspace base is immutable.",
-    "- Workspace repo is the only writable implementation copy.",
-    "- Stage compares workspace base and workspace repo deterministically.",
-    "- Apply verifies baseline hashes against the live target repo before writing.",
-    `- Verify executes \`${state.verifyCommand}\` in the live target repo and persists stdout/stderr.`,
+    "- Workspace base is immutable; workspace repo is the only writable implementation copy.",
+    "- Stage compares workspace base and workspace repo deterministically; operations.json carries the baselineId.",
+    "- Apply verifies baseline hashes against the live target repo before writing; idempotent replay is detected via applyTxnId.",
+    `- Verify executes \`${state.verifyCommand}\` in the live target repo and persists stdout/stderr to \`verification/summary.json\` and \`verification/reports/<unit>.md\`.`,
     "",
-    "Requirement-to-verification matrix:",
+    "Artifacts persisted per run:",
+    "- `verification/summary.json` (overallVerdict, per-unit commands, exit codes)",
+    "- `verification/profile.json` (effective tier + command resolution)",
+    "- `verification/reports/<unit>.md` (per-unit stdout/stderr excerpt)",
+    "- `specs/reuse-evidence.md` (REQ-7 static review evidence; updated during fix loop)",
+    "- `traceability/contract-chain.jsonl` (append-only audit log)",
     "",
-    "- REQ-1: exact `TypeError`/`RangeError` behavior is asserted in node:test for invalid `start`, invalid `end`, and descending ranges.",
+    "Requirement-to-verification matrix (each REQ maps to an explicit test or artifact):",
+    "",
+    "- REQ-1a: `sumRange` rejects non-integer `start` with exact `TypeError('start must be an integer')`.",
+    "- REQ-1b: `sumRange` rejects non-integer `end` with exact `TypeError('end must be an integer')`.",
+    "- REQ-1c: `describeRange` rejects non-integer `start` with the same exact `TypeError`.",
+    "- REQ-1d: `describeRange` rejects non-integer `end` with the same exact `TypeError`.",
+    "- REQ-1e: `sumRange` and `describeRange` both reject descending ranges with exact `RangeError('start must be less than or equal to end')`.",
     "- REQ-2: `sumRange(start, end)` is asserted against inclusive sums.",
     "- REQ-3: `describeRange(start, end)` is asserted for object shape and aggregate values.",
-    "- REQ-4: `sumRange` representative inputs include a single-point range and a zero-crossing or negative range.",
-    "- REQ-5: `describeRange` representative inputs include single-point, zero-crossing or negative values, and a fractional average.",
-    "- REQ-6: `src/index.js` export surface is asserted by importing the public entrypoint.",
-    "- REQ-7: implementation review must inspect the `src/range.js` diff and confirm the new helpers call `normalizeRange`, `listRange`, and/or `sum` instead of duplicating range math."
+    "- REQ-4: `sumRange` representative inputs include a single-point range AND a zero-crossing or negative range (both cases asserted).",
+    "- REQ-5: `describeRange` representative inputs include single-point, zero-crossing or negative values, AND a fractional average (all three asserted).",
+    "- REQ-6: `src/index.js` export surface is asserted by importing the public entrypoint and invoking each new helper at least once.",
+    "- REQ-7: implementation review records a static reuse audit in `specs/reuse-evidence.md` confirming the new helpers delegate to `normalizeRange`, `listRange`, and/or `sum`; the impl-review aggregate rejects any finding flagging duplicated range math."
+  ].join("\n");
+}
+
+function renderReuseEvidenceTemplate(state) {
+  return [
+    "# Reuse Evidence (REQ-7)",
+    "",
+    `Feature: \`${state.feature}\``,
+    "",
+    "This document records the static audit that the implementation review must complete before an impl-review GREEN verdict is possible.",
+    "",
+    "## Checklist",
+    "",
+    "- [ ] `sumRange(start, end)` delegates to `listRange` + `sum` (no duplicated loop over `start..end`).",
+    "- [ ] `describeRange(start, end)` delegates to `normalizeRange`, `listRange`, and `sum` for the aggregate (no re-computing the range walk).",
+    "- [ ] No new helpers re-implement `normalizeRange`'s validation logic locally.",
+    "",
+    "## Evidence (to be filled in during impl-review)",
+    "",
+    "- Diff reviewed: `operations/<unit>/operations.json`",
+    "- Reviewer: ",
+    "- Reviewed at: ",
+    "- Conclusion: ",
+    ""
   ].join("\n");
 }
 
@@ -1095,12 +1159,24 @@ function renderTestStrategy() {
   return [
     "# Test Strategy",
     "",
-    "- Keep the existing `node:test` runner.",
-    "- Cover happy path for `sumRange` and `describeRange`.",
-    "- Cover exact validation behavior for invalid `start` and invalid `end` with message checks.",
-    "- Cover descending range rejection with `RangeError` and the existing message.",
-    "- Cover representative `describeRange` cases: single-point, zero-crossing or negative values, and fractional average.",
-    "- Validate aggregate values, `values` ordering, `count`, and exported surface."
+    "- Keep the existing `node:test` runner; every REQ maps to at least one assertion.",
+    "",
+    "Mandatory test cases (each line = one `test(...)`):",
+    "",
+    "- REQ-1a: `sumRange('1', 3)` → `TypeError` with exact `\"start must be an integer\"`.",
+    "- REQ-1b: `sumRange(1, '3')` → `TypeError` with exact `\"end must be an integer\"`.",
+    "- REQ-1c: `describeRange('1', 3)` → `TypeError` with exact `\"start must be an integer\"`.",
+    "- REQ-1d: `describeRange(1, '3')` → `TypeError` with exact `\"end must be an integer\"`.",
+    "- REQ-1e: both `sumRange(5, 1)` and `describeRange(5, 1)` → `RangeError` with exact `\"start must be less than or equal to end\"`.",
+    "- REQ-2: `sumRange(1, 4) === 10`.",
+    "- REQ-3: `describeRange(2, 4)` matches `{start:2,end:4,count:3,values:[2,3,4],sum:9,average:3}`.",
+    "- REQ-4a: `sumRange(7, 7) === 7` (single-point).",
+    "- REQ-4b: `sumRange(-2, 2) === 0` (zero-crossing / negative).",
+    "- REQ-5a: `describeRange(5, 5)` single-point shape.",
+    "- REQ-5b: `describeRange(-2, 2)` zero-crossing shape.",
+    "- REQ-5c: `describeRange(0, 1).average === 0.5` (fractional average).",
+    "- REQ-6: importing from `src/index.js` returns the full exported surface including `sumRange` and `describeRange`.",
+    "- REQ-7: static reuse audit recorded in `specs/reuse-evidence.md` before impl-review GREEN is possible."
   ].join("\n");
 }
 
