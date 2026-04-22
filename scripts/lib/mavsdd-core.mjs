@@ -2937,32 +2937,30 @@ export async function prepareFixes(repoRoot, feature) {
   };
 }
 
-function makeFixAgents(teamComposition, resolutions) {
-  const agents = {};
-
+function summarizeFixClusters(teamComposition, resolutions) {
+  // plan §0.5: flatten clusters into a single-agent brief instead of
+  // spawning one sub-agent per cluster.
+  if (!resolutions || resolutions.length === 0) {
+    return "(no active clusters)";
+  }
+  const lines = [];
   for (const resolution of resolutions) {
     const unit =
       teamComposition.units.find((candidate) => candidate.id === resolution.clusterId) ||
       teamComposition.units.find(
-        (candidate) => candidate.originClusterId && candidate.originClusterId === resolution.clusterId
+        (candidate) =>
+          candidate.originClusterId && candidate.originClusterId === resolution.clusterId
       );
-    const agentId = unit?.id || resolution.clusterId;
-    const writable = (unit?.writeFiles?.length ? unit.writeFiles : unit?.writePaths || []).join(", ") || "(unspecified)";
-    agents[agentId] = {
-      description: `Fix cluster ${resolution.clusterId} within ${writable}.`,
-      prompt: [
-        `Address fix cluster ${resolution.clusterId}.`,
-        `Touch only: ${writable}.`,
-        "Resolve the findings below and keep the workspace test suite green.",
-        "",
-        ...(resolution.findings || []).map(
-          (finding) => `- ${finding.id} [${finding.severity}] ${finding.title}: ${finding.detail}`
-        )
-      ].join("\n")
-    };
+    const writable =
+      (unit?.writeFiles?.length ? unit.writeFiles : unit?.writePaths || []).join(", ")
+      || "(unit scope not declared — stay conservative)";
+    lines.push(`- Cluster ${resolution.clusterId} — allowed writes: ${writable}`);
+    for (const finding of resolution.findings || []) {
+      const body = finding.detail || finding.description || "";
+      lines.push(`    · ${finding.id || finding.findingId || "FIND-?"} [${finding.severity ?? "n/a"}] ${finding.title ?? ""}: ${body}`);
+    }
   }
-
-  return agents;
+  return lines.join("\n");
 }
 
 async function loadFixResolutions(root) {
@@ -3022,20 +3020,26 @@ export async function runFixWorkflow(repoRoot, feature) {
     throw error;
   }
 
+  // plan §0.5: fix loop runs a single Sonnet invocation (no Agent Team spawn).
+  // We still honor cluster.json scope boundaries in the prompt so the fixer
+  // knows which files belong to which cluster.
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
   const repoDir = path.join(root, "workspace/repo");
-  const agents = makeFixAgents(
-    teamComposition,
-    resolutions.filter((resolution) => ["pending", "approved"].includes(resolution.status))
+  const activeClusters = resolutions.filter((resolution) =>
+    ["pending", "approved"].includes(resolution.status)
   );
+  const clusterBrief = summarizeFixClusters(teamComposition, activeClusters);
   const schemaPath = path.join(root, "team-runtime/claude-fix-schema.json");
   const responsePath = path.join(root, "team-runtime/claude-fix-last-message.json");
   const rawPath = path.join(root, "team-runtime/claude-fix-raw-response.json");
   const prompt = [
-    "You are fixing review findings in a sample Node.js repository workspace.",
-    "Use the available agent capability to delegate work to the provided fix agents before finishing.",
-    "Modify only the workspace repo.",
-    "Run `npm test` before you finish.",
+    "You are the mavsdd Fixer. Resolve the listed review findings in the workspace repo.",
+    "Plan §0.5: this is a single-agent invocation — do all the fixes yourself, no sub-agent delegation.",
+    "Edit only the files listed under each cluster's scope; do not widen scope.",
+    "Run `npm test` in the workspace before you finish.",
+    "",
+    "Clusters to resolve:",
+    clusterBrief,
     "",
     "Return JSON matching the schema."
   ].join("\n");
@@ -3044,13 +3048,9 @@ export async function runFixWorkflow(repoRoot, feature) {
   await writeJson(schemaPath, {
     type: "object",
     additionalProperties: false,
-    required: ["summary", "delegatedAgents", "resolvedClusters", "changedFiles", "testsPassed"],
+    required: ["summary", "resolvedClusters", "changedFiles", "testsPassed"],
     properties: {
       summary: { type: "string" },
-      delegatedAgents: {
-        type: "array",
-        items: { type: "string" }
-      },
       resolvedClusters: {
         type: "array",
         items: { type: "string" }
@@ -3067,7 +3067,8 @@ export async function runFixWorkflow(repoRoot, feature) {
     ts: nowIso(),
     phase: "fix_required",
     event: "claude_fix_started",
-    agents: Object.keys(agents)
+    mode: "single-agent",
+    clusterCount: activeClusters.length
   });
 
   const result = runProcess(
@@ -3082,28 +3083,24 @@ export async function runFixWorkflow(repoRoot, feature) {
       "json",
       "--json-schema",
       await fs.realpath(schemaPath),
-      "--agents",
-      JSON.stringify(agents),
       "-"
     ],
     {
       cwd: repoDir,
       input: prompt,
-      env: {
-        ...process.env,
-        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
-      },
+      env: { ...process.env },
       timeoutMs: Number(process.env.MAVSDD_IMPLEMENT_TIMEOUT_MS) || 15 * 60 * 1000
     }
   );
 
   await writeJson(rawPath, {
     command: "claude",
-    args: ["-p", "--model", "sonnet", "--agents", agents],
+    args: ["-p", "--model", "sonnet", "--json-schema", schemaPath],
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    promptPayloadHash
+    promptPayloadHash,
+    mode: "single-agent"
   });
 
   let parsed = null;
