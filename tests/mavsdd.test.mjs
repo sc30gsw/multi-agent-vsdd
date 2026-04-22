@@ -61,6 +61,37 @@ test("init, plan, red, and resume create the expected runtime state", async () =
   assert.ok(team.units.some((unit) => unit.id === "sample-audit"));
 });
 
+test("init accepts target-repo aliases for fresh sample apps", async () => {
+  const repoRoot = await makeTempRepo();
+  await createSampleTarget(repoRoot);
+  const extraTarget = path.join(repoRoot, "sample/public-entrypoint-app");
+  await fs.mkdir(path.join(extraTarget, "src"), { recursive: true });
+  await fs.mkdir(path.join(extraTarget, "tests"), { recursive: true });
+  await fs.writeFile(
+    path.join(extraTarget, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "public-entrypoint-app",
+        type: "module",
+        scripts: {
+          test: "node --test"
+        }
+      },
+      null,
+      2
+    )}\n`
+  );
+  await fs.writeFile(path.join(extraTarget, "src/index.js"), "export const ok = true;\n");
+  await fs.writeFile(path.join(extraTarget, "tests/basic.test.js"), "import test from 'node:test';\n");
+
+  const state = await createFeatureState(repoRoot, "alias-feature", {
+    "target-repo": "sample/public-entrypoint-app",
+    "verify-command": "npm test"
+  });
+
+  assert.equal(state.targetRepoRelative, "sample/public-entrypoint-app");
+});
+
 test("stage, apply, verify, and aggregate remain deterministic", async () => {
   const repoRoot = await makeTempRepo();
   await createSampleTarget(repoRoot);
@@ -151,6 +182,11 @@ test("stage, apply, verify, and aggregate remain deterministic", async () => {
 
   const staged = await stageOperations(repoRoot, "sample-feature");
   assert.equal(staged.operationsByUnit["sample-logic"].length, 1);
+  const logicOperations = JSON.parse(
+    await fs.readFile(path.join(root, "operations/sample-logic/operations.json"), "utf8")
+  );
+  assert.deepEqual(logicOperations.changedPaths, ["src/index.js"]);
+  assert.deepEqual(logicOperations.requirementCoverage, ["REQ-6"]);
 
   const applied = await applyOperations(repoRoot, "sample-feature");
   assert.equal(applied.appliedCount, 1);

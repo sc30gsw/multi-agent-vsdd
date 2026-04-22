@@ -2,13 +2,13 @@
 node_modules/
 coverage/
 dist/
-.mavsdd/active.json
-.mavsdd/.apply-lock
-.mavsdd/features/*/workspace/base/
-.mavsdd/features/*/workspace/repo/
-.mavsdd/features/*/workspace/runtime/
-.mavsdd/features/*/reviews/*/iteration-*/reviewer-*/raw-response.json
-.mavsdd/features/*/reviews/*/iteration-*/reviewer-*/prompt.md
-.mavsdd/features/*/verification/summary.json
-.mavsdd/features/*/verification/profile.json
-.mavsdd/features/*/verification/reports/
+
+# Runtime state (feature-scoped workspaces, apply lock, active pointer, live
+# review transcripts) — generated locally, never shipped with the plugin.
+.mavsdd/
+
+# Target repositories used for local E2E sandbox runs.
+sample/
+
+# In-repo design documents kept local for now.
+docs/
