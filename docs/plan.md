@@ -21,10 +21,15 @@ Codex reviewer は adversarial なので全員 GREEN になることはほぼ無
 - eligible reviewer の **2/3 以上が GREEN** のとき aggregate は GREEN
 - ただし **unanimous でない場合は `conditional: true`** を立てる
 - `/mavsdd-approve-impl`（および `approve-plan`）は `conditional === true` のとき **`--accept-risk "<reason>"` の明示**を要求する。`human-approvals.jsonl` にそのまま記録する
+- **default reviewer 数は 3**（2/3 quorum が意味を持つ最小構成）。`--reviewers 1` は demo / debug 用の escape hatch
 
-### 0.3 Reviewer backend は Codex 既定 + Agent Teams fallback
+### 0.3 Reviewer backend は Codex 既定 + `--backend mock` fallback
 
-Codex は契約 / quota 次第で利用できない user がいる。v1 は `--backend codex|agent-team` flag を `/mavsdd-plan-review` / `/mavsdd-impl-review` に追加し、codex 不在または quota 切れのとき Agent Teams で review を代替できるようにする（実装は v1.1 で段階投入可）。
+Codex は契約 / quota 次第で利用できない user がいる。v1 は `/mavsdd-plan-review` / `/mavsdd-impl-review` に `--backend codex|mock` flag を持つ:
+
+- `codex`（default）— `codex exec --model gpt-5.4 --sandbox read-only` で adversarial review を回す
+- `mock` — 人間が verdict を注入する代替経路。CLI は N 体分の `verdict.json` を synth、各 verdict に **`meta.source: "human-mock"` / `meta.reason` / `meta.reviewedBy` / `meta.reviewedAt`** を埋め込んで audit trail を保持。`run-metadata/events.jsonl` にも `provider: "human-mock"` で記録
+- `agent-team` backend（Claude Agent Team で review 代替）は v1.1 で追加予定
 
 ### 0.4 Plan scaffold は minimal、ハードコード REQ を撤廃
 
@@ -115,22 +120,35 @@ operator が `.mavsdd/` 配下のどの json / md を開けばよいか毎回頭
 - README には phase → 開くファイルの公式対応表を記載するが、**operator が暗記する必要は無い** — INDEX.md が毎回差し替えて教える
 - README には **"一番先に開くのは `.mavsdd/features/<feature>/INDEX.md`"** と明示する
 
-### 0.9 Claude-only 運用経路（Codex 非依存）
+### 0.9 Claude-only 運用経路（Codex 非依存、`--backend mock`）
 
-`/mavsdd-plan-review` / `/mavsdd-impl-review` **以外**は Codex を必要としない。Codex が未導入 / quota 切れのとき、operator は次の手順で review を "mock" できる。
+`/mavsdd-plan-review` / `/mavsdd-impl-review` **以外**は Codex を必要としない。Codex が未導入 / quota 切れのときは、fish で `verdict.json` を手書きする代わりに **同じ skill に `--backend mock`** を渡す。
 
-```bash
-mkdir -p .mavsdd/features/<f>/reviews/<scope>/iteration-<K>/reviewer-<R>
-cat > .mavsdd/features/<f>/reviews/<scope>/iteration-<K>/manifest.json <<EOF
-{"feature":"<f>","scope":"<scope>","iteration":<K>,"reviewers":["<R>"],"artifactsToReview":[]}
-EOF
-cat > .mavsdd/features/<f>/reviews/<scope>/iteration-<K>/reviewer-<R>/verdict.json <<EOF
-{"verdict":"GREEN","coverageComplete":true,"findings":[]}
-EOF
-# reviewIterations を更新して aggregate へ
+```
+/mavsdd-plan-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "Codex unavailable" --by "<name>"
+/mavsdd-impl-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "Codex unavailable" --by "<name>"
 ```
 
-この経路でも `aggregate → approve-* → done` までは通常通り通る。v1.1 で `--backend agent-team` が入れば手動 mock は不要になる。
+効果:
+
+- N 体分の `reviewer-*/verdict.json` を一括生成
+- 各 verdict に `meta: {source:"human-mock", reason, reviewedBy, reviewedAt, backend:"mock"}` を埋め込む（audit 可能、codex 経路の verdict と一目で区別できる）
+- `run-metadata/events.jsonl` に `provider:"human-mock"` / `kind:"model_invocation"` を append
+- phase は real review と同じく `plan_reviewed` / `impl_reviewed` に遷移
+
+この経路でも `aggregate → approve-* → done` は通常通り通る。aggregate が `conditional: true` にならなくても、`approve-*` には `--accept-risk "Codex unavailable: human-mock"` を付けるのを **強く推奨**（`human-approvals.jsonl` に理由が残る）。
+
+### 0.10 Rubric は 3 軸（plan と impl で別軸）
+
+v1 の rubric は適度に単純化:
+
+- **plan review**（`templates/codex-rubric-plan.md`）: `spec_clarity` / `decomposition_soundness` / `risk_coverage` / `team_feasibility`（仕様レビュー軸）
+- **impl review**（`templates/codex-rubric-impl.md`）: **`quality` / `efficiency` / `maintainability`**（コードレビュー 3 軸）
+  - `quality` = 正しさ・仕様充足・test の実質・security / input validation / hidden behavior
+  - `efficiency` = 実行効率・test の wall time 肥大・不要 allocation / I/O
+  - `maintainability` = 可読性・将来変更コスト・dead code / 重複 / 命名 / 型の narrow さ / 残骸コメント
+
+同じ軸を繰り返し 5 個に細分化すると reviewer が「軸単位で埋める」癖を作る。3 軸に絞って、その中で具体 finding を切り出させる。
 
 ## 1. 目的
 

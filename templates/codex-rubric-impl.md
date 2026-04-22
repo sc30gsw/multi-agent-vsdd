@@ -15,13 +15,13 @@ You are reviewer {REVIEWER_ID} of {N} for scope `impl`. You are adversarial. You
 
 Your `touched_files[]` must include every artifact actually read. Incomplete coverage → auto-downgrade to YELLOW + `coverage_incomplete` finding.
 
-## Dimensions
+## Dimensions (3-axis code review rubric)
 
-- **spec_fidelity** — Does the applied change realize every requirement? Any silent omissions?
-- **test_quality** — Do the tests exercise the new behavior, boundaries, and failure cases? Are assertions specific?
-- **code_quality** — Any dead code, duplicated logic, unsafe patterns, hidden mutation?
-- **security** — Input validation, injection, secrets, file paths, crypto misuse?
-- **hidden_behavior** — Any side effects, env changes, global state that the plan did not acknowledge?
+Score each on `low | medium | high`. Every dimension contributes findings when score < high; cite `filePath` + `lineRange` on every finding.
+
+- **quality** — Correctness and spec fidelity. Does the applied change realize every requirement? Are tests exercising real behavior, boundaries, and failure cases (not tautologies)? Any input-validation / injection / secret / unsafe-path issues? Any silent spec omissions or hidden behavior that the plan did not acknowledge?
+- **efficiency** — Runtime / memory / I/O appropriateness for the workload. Redundant loops, N+1, unnecessary allocations, chatty I/O, over-strict blocking where async would do. Also: test-suite wall time bloat.
+- **maintainability** — Readability and future-change cost. Dead code, duplicated logic, hidden mutation, unclear naming, module boundaries violated, missing types / narrow types, over-clever abstractions, commented-out scaffolding left behind.
 
 ## Severity and traffic light
 
@@ -33,7 +33,17 @@ Your `touched_files[]` must include every artifact actually read. Incomplete cov
 
 `{ABS}/.mavsdd/features/{FEATURE}/reviews/impl/iteration-{K}/reviewer-{REVIEWER_ID}/.inbox/verdict.json`
 
-Same shape as the plan rubric. Every finding must carry `filePath` + `lineRange`. Reference the operation hash or `implementations/<unit>/status.json` when citing an applied change.
+Same shape as the plan rubric but with the 3-axis `dimensions`:
+
+```json
+  "dimensions": [
+    { "name": "quality",         "score": "low|medium|high", "note": "..." },
+    { "name": "efficiency",      "score": "low|medium|high", "note": "..." },
+    { "name": "maintainability", "score": "low|medium|high", "note": "..." }
+  ],
+```
+
+Every finding must carry `filePath` + `lineRange`. Reference the operation hash or `implementations/<unit>/status.json` when citing an applied change.
 
 Hard constraints:
 

@@ -28,7 +28,7 @@ Claude Code の Agent Teams と（optional で）Codex CLI を組み合わせ、
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 ```
 
-> Codex が入っていない / quota 切れの場合でも、`/mavsdd-plan-review` と `/mavsdd-impl-review` 以外は全部動きます。review は後述の「Claude-only workflow」で手動 verdict を流し込めば続行可能です。
+> Codex が入っていない / quota 切れの場合でも、`/mavsdd-plan-review` / `/mavsdd-impl-review` に `--backend mock` を付けるだけで人間署名付き verdict が注入されて続行可能です（後述 "Claude-only workflow"）。
 
 ## Installation
 
@@ -101,7 +101,7 @@ init → plan → plan-review → aggregate → approve-plan
 ...
 
 **Then run**:
-node scripts/cli/mavsdd.mjs plan-review --feature <f> --reviewers 1
+node scripts/cli/mavsdd.mjs plan-review --feature <f>   # default 3 reviewer, Codex
 
 ## Feature
 - Goal: ...
@@ -166,32 +166,36 @@ VS Code / GitHub / Obsidian 等の Markdown プレビューで、`Open` セク�
 tail -f .mavsdd/features/<feature>/run-metadata/events.jsonl
 ```
 
-## Claude-only workflow（Codex 無しで回す）
+## Claude-only workflow（Codex 無しで回す）— `--backend mock`
 
-plan-review / impl-review 以外は Codex 不要です。review だけ手動 mock で通す手順:
+plan-review / impl-review 以外は Codex 不要です。review は **同じ skill に `--backend mock` フラグ**を渡すだけで、fish 手書きなしに N 体分の人間署名付き verdict が一括注入されます（plan §0.9）。
 
-```bash
-# plan-review ステップ
-mkdir -p .mavsdd/features/<f>/reviews/plan/iteration-1/reviewer-1
-cat > .mavsdd/features/<f>/reviews/plan/iteration-1/manifest.json <<'EOF'
-{"feature":"<f>","scope":"plan","iteration":1,"reviewers":["1"],"artifactsToReview":[]}
-EOF
-cat > .mavsdd/features/<f>/reviews/plan/iteration-1/reviewer-1/verdict.json <<'EOF'
-{"verdict":"GREEN","coverageComplete":true,"findings":[]}
-EOF
-# state の reviewIterations.plan を 1 に上げる
-node -e 'const fs=require("fs");const p=".mavsdd/features/<f>/feature-state.json";const s=JSON.parse(fs.readFileSync(p,"utf8"));s.reviewIterations.plan=1;fs.writeFileSync(p,JSON.stringify(s,null,2)+"\n")'
-node scripts/cli/mavsdd.mjs aggregate --feature <f> --scope plan
-node scripts/cli/mavsdd.mjs approve-plan --feature <f> --by <you>   # --accept-risk が必要なら付与
+```
+/mavsdd-plan-review --feature <f> --reviewers 3 --backend mock --verdict GREEN --reason "Codex unavailable" --by <you>
+/mavsdd-aggregate --feature <f> --scope plan
+/mavsdd-approve-plan --feature <f> --by <you> --accept-risk "Codex unavailable: plan-review mocked"
 ```
 
-impl-review も同じパターン（`reviews/impl/iteration-K/`）です。**Codex が戻ってきたら `/mavsdd-plan-review --reviewers 1` に切り替えるだけ**で adversarial review 経路に復帰できます。
+各 `reviewer-*/verdict.json` に `meta.source: "human-mock"` / `meta.reason` / `meta.reviewedBy` / `meta.reviewedAt` が入り、Codex 経路との区別が 1 目で判ります。impl も同じパターン（`scope=impl`）。詳細は [`docs/DEMO.md`](./docs/DEMO.md) 参照。
+
+Codex が戻ってきたら `--backend mock` を外すだけで adversarial review 経路に復帰します。
 
 ## 2/3 quorum と human risk ack
 
-- `reviewers: 3` で回したとき **3 人が全員 GREEN** → aggregate GREEN、approve-plan/impl は `--by` だけで通る
+- **default reviewer 数は 3**（plan §0.2 の 2/3 quorum が意味を持つ最小構成）。`--reviewers 1` は demo / debug 用
+- `reviewers: 3` で **3 人が全員 GREEN** → aggregate GREEN、approve-plan/impl は `--by` だけで通る
 - **2 人 GREEN + 1 RED/YELLOW** → aggregate GREEN だが `conditional: true`、approve に `--accept-risk "<reason>"` が**必須**。`human-approvals.jsonl` に reason がそのまま記録される
 - **critical severity の RED がある** → 2/3 GREEN でも aggregate は RED に戻す（approve-impl 不可）
+
+## Rubric は 3 軸（plan と impl で別）
+
+- **plan review**（仕様レビュー）: `spec_clarity` / `decomposition_soundness` / `risk_coverage` / `team_feasibility`
+- **impl review**（コードレビュー 3 軸）: **`quality` / `efficiency` / `maintainability`**
+  - `quality` = 正しさ・仕様充足・test の実質・security / input validation / hidden behavior
+  - `efficiency` = 実行効率・test wall time 肥大・不要 allocation / I/O
+  - `maintainability` = 可読性・dead code / 重複 / 命名 / 型の narrow さ / 残骸コメント
+
+軸の詳細は [`templates/codex-rubric-plan.md`](./templates/codex-rubric-plan.md) と [`templates/codex-rubric-impl.md`](./templates/codex-rubric-impl.md)。
 - `reviewers: 1` のときは 1/1 で GREEN、RED なら通らないという素直な挙動
 
 ## Commands
@@ -202,7 +206,7 @@ impl-review も同じパターン（`reviews/impl/iteration-K/`）です。**Cod
 |---|---|---|
 | `/mavsdd-init` | `init` | `--feature`, `--target`, `--verify-command` |
 | `/mavsdd-plan` | `plan` | `--feature`, `--goal` |
-| `/mavsdd-plan-review` | `plan-review` | `--feature`, `--reviewers`, `--timeout-ms` |
+| `/mavsdd-plan-review` | `plan-review` | `--feature`, `--reviewers`（default **3**）, `--backend codex\|mock`, `--verdict`, `--reason`, `--by`, `--timeout-ms` |
 | `/mavsdd-aggregate` | `aggregate` | `--feature`, `--scope plan\|impl` |
 | `/mavsdd-approve-plan` | `approve-plan` | `--feature`, `--by`, `--accept-risk` |
 | `/mavsdd-red` | `red` | `--feature` |
@@ -210,7 +214,7 @@ impl-review も同じパターン（`reviews/impl/iteration-K/`）です。**Cod
 | `/mavsdd-stage` | `stage` | `--feature` |
 | `/mavsdd-apply` | `apply` | `--feature` |
 | `/mavsdd-verify` | `verify` | `--feature` |
-| `/mavsdd-impl-review` | `impl-review` | `--feature`, `--reviewers`, `--timeout-ms` |
+| `/mavsdd-impl-review` | `impl-review` | `--feature`, `--reviewers`（default **3**）, `--backend codex\|mock`, `--verdict`, `--reason`, `--by`, `--timeout-ms` |
 | `/mavsdd-approve-orphan` | `approve-orphan` | `--feature`, `--cluster-id`, `--verdict`, `--by` |
 | `/mavsdd-fix` | `fix` | `--feature` |
 | `/mavsdd-approve-impl` | `approve-impl` | `--feature`, `--by`, `--accept-risk` |
@@ -280,7 +284,7 @@ impl-review も同じパターン（`reviews/impl/iteration-K/`）です。**Cod
 | 症状 | 対処 |
 |---|---|
 | `/mavsdd-implement` / `/mavsdd-fix` が 5 分以上応答しない | 前節「実行上の注意」。`MAVSDD_IMPLEMENT_TIMEOUT_MS=300000` で timeout を短めに試す |
-| `/mavsdd-plan-review` / `/mavsdd-impl-review` が失敗 | `codex login status` を確認。quota 切れなら前述の「Claude-only workflow」で手動 verdict 流し込み |
+| `/mavsdd-plan-review` / `/mavsdd-impl-review` が失敗 | `codex login status` を確認。quota 切れなら `--backend mock` に切替（前述 "Claude-only workflow"） |
 | `approve-plan` / `approve-impl` が `requires --accept-risk` と言う | aggregate が `conditional: true`（2/3 GREEN 非 unanimous）。reason をつけて再実行 |
 | `/mavsdd-apply` が `baseHash mismatch` で止まる | target repo に手で変更が入っている。`/mavsdd-status` → rebase / restage |
 | `/mavsdd-*` が "command not found" | session 再起動。だめなら `/plugin marketplace update mavsdd` |

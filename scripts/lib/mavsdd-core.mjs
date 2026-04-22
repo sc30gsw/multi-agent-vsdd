@@ -2459,21 +2459,27 @@ export async function runVerification(repoRoot, feature) {
 export async function runReview(repoRoot, feature, scope, options = {}) {
   const state = await loadState(repoRoot, feature);
   ensureCommandEntryPhase(state, `${scope}-review`);
-  try {
-    ensureCodexPreflight(repoRoot);
-  } catch (error) {
-    await appendRunMetadata(repoRoot, feature, {
-      command: scope === "plan" ? "plan-review" : "impl-review",
-      kind: "model_invocation",
-      status: "rejected",
-      policyDecision: "deny",
-      policyReason: error.message,
-      detail: {
-        feature,
-        scope
-      }
-    });
-    throw error;
+  const backend = String(options.backend || "codex").toLowerCase();
+  if (backend !== "codex" && backend !== "mock") {
+    throw new Error(`unknown --backend "${backend}"; expected "codex" or "mock"`);
+  }
+  if (backend === "codex") {
+    try {
+      ensureCodexPreflight(repoRoot);
+    } catch (error) {
+      await appendRunMetadata(repoRoot, feature, {
+        command: scope === "plan" ? "plan-review" : "impl-review",
+        kind: "model_invocation",
+        status: "rejected",
+        policyDecision: "deny",
+        policyReason: error.message,
+        detail: {
+          feature,
+          scope
+        }
+      });
+      throw error;
+    }
   }
   const root = featureRoot(repoRoot, feature);
   if (scope === "impl") {
@@ -2482,7 +2488,26 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
   const teamComposition = await loadEffectiveTeamComposition(repoRoot, feature);
   const iteration = (state.reviewIterations[scope] || 0) + 1;
   const iterationDir = path.join(root, "reviews", scope, `iteration-${iteration}`);
-  const reviewers = Number(options.reviewers || 1);
+  // plan §0.2: 2/3 GREEN quorum has no meaning below 3 reviewers. Keep the
+  // escape hatch `--reviewers 1` for demos but default to a real jury.
+  const requestedReviewers = Number(options.reviewers || 3);
+  if (!Number.isFinite(requestedReviewers) || requestedReviewers < 1) {
+    throw new Error(`--reviewers must be a positive integer (got ${options.reviewers}).`);
+  }
+  const reviewers = requestedReviewers;
+
+  if (backend === "mock") {
+    return await runMockReview({
+      repoRoot,
+      feature,
+      scope,
+      state,
+      iterationDir,
+      iteration,
+      reviewers,
+      options
+    });
+  }
   const reviewTimeoutMs = Number(options["timeout-ms"] || process.env.MAVSDD_REVIEW_TIMEOUT_MS || 10 * 60_000);
   const artifacts = scope === "plan"
     ? [
@@ -2711,6 +2736,91 @@ export async function runReview(repoRoot, feature, scope, options = {}) {
     scope,
     iteration,
     reviewers
+  };
+}
+
+// plan §0.9: Claude-only / Codex-unavailable escape hatch exposed as a skill.
+// Generates N reviewer verdicts with an audit-visible human-mock source tag so
+// aggregate / approve can run without Codex while human-approvals.jsonl retains
+// full provenance. Use --verdict GREEN|YELLOW|RED and --reviewers N.
+async function runMockReview({ repoRoot, feature, scope, state, iterationDir, iteration, reviewers, options }) {
+  const verdictLabel = String(options.verdict || "GREEN").toUpperCase();
+  if (!["GREEN", "YELLOW", "RED"].includes(verdictLabel)) {
+    throw new Error(`--verdict must be GREEN|YELLOW|RED (got "${options.verdict}")`);
+  }
+  const reason = String(options.reason || options.note || "Codex unavailable: human-mock verdict injected");
+  const reviewedBy = String(options.by || options.reviewer || process.env.USER || "unknown");
+
+  const manifest = {
+    feature,
+    scope,
+    iteration,
+    snapshotId: `${scope}-iteration-${iteration}`,
+    generatedAt: nowIso(),
+    backend: "mock",
+    reviewers: Array.from({ length: reviewers }, (_, index) => String(index + 1)),
+    artifactsToReview: []
+  };
+
+  await ensureDir(iterationDir);
+  await writeJson(path.join(iterationDir, "manifest.json"), manifest);
+
+  for (let reviewerIndex = 1; reviewerIndex <= reviewers; reviewerIndex += 1) {
+    const reviewerDir = path.join(iterationDir, `reviewer-${reviewerIndex}`);
+    await ensureDir(reviewerDir);
+    const verdict = {
+      verdict: verdictLabel,
+      coverageComplete: true,
+      findings: verdictLabel === "GREEN"
+        ? []
+        : [
+            {
+              id: `mock-${reviewerIndex}-1`,
+              severity: verdictLabel === "RED" ? "critical" : "medium",
+              category: "review_meta",
+              description: reason,
+              suggestion: "Re-run with a real reviewer when Codex / Agent Teams review is available."
+            }
+          ],
+      meta: {
+        source: "human-mock",
+        reason,
+        reviewedBy,
+        reviewedAt: nowIso(),
+        backend: "mock"
+      }
+    };
+    await writeJson(path.join(reviewerDir, "verdict.json"), verdict);
+    await writeText(path.join(reviewerDir, ".ready"), `${nowIso()}\n`);
+  }
+
+  state.reviewIterations[scope] = iteration;
+  state.phase = scope === "plan" ? "plan_reviewed" : "impl_reviewed";
+  await saveState(repoRoot, feature, state);
+  await appendRunMetadata(repoRoot, feature, {
+    command: scope === "plan" ? "plan-review" : "impl-review",
+    kind: "model_invocation",
+    status: "completed",
+    provider: "human-mock",
+    detail: {
+      feature,
+      scope,
+      iteration,
+      reviewers,
+      backend: "mock",
+      verdict: verdictLabel,
+      reason,
+      reviewedBy
+    }
+  });
+
+  return {
+    feature,
+    scope,
+    iteration,
+    reviewers,
+    backend: "mock",
+    verdict: verdictLabel
   };
 }
 
